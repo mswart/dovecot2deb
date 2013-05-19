@@ -1,4 +1,4 @@
-dovecot (1:2.2.1-0) unstable; urgency=low
+dovecot (1:2.2.1-0) precise; urgency=low
 
   * [401fc93] Imported upstream version 2.2.1
   * [39e11c1] Updated pigeonhole to 0.4.0 (dovecot 2.2 compatible)
