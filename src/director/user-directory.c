@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2010-2013 Dovecot authors, see the included COPYING file */
 
 #include "lib.h"
 #include "ioloop.h"
@@ -20,12 +20,13 @@ struct user_directory_iter {
 };
 
 struct user_directory {
-	/* const char *username => struct user* */
-	struct hash_table *hash;
+	/* unsigned int username_hash => user */
+	HASH_TABLE(void *, struct user *) hash;
 	/* sorted by time */
 	struct user *head, *tail;
+	struct user *prev_insert_pos;
 
-	ARRAY_DEFINE(iters, struct user_directory_iter *);
+	ARRAY(struct user_directory_iter *) iters;
 
 	char *username_hash_fmt;
 	unsigned int timeout_secs;
@@ -42,6 +43,9 @@ static void user_move_iters(struct user_directory *dir, struct user *user)
 		if ((*iterp)->pos == user)
 			(*iterp)->pos = user->next;
 	}
+
+	if (dir->prev_insert_pos == user)
+		dir->prev_insert_pos = user->next;
 }
 
 static void user_free(struct user_directory *dir, struct user *user)
@@ -61,7 +65,22 @@ static bool user_directory_user_has_connections(struct user_directory *dir,
 {
 	time_t expire_timestamp = user->timestamp + dir->timeout_secs;
 
-	return expire_timestamp >= ioloop_time;
+	if (expire_timestamp >= ioloop_time)
+		return TRUE;
+
+	if (user->kill_state != USER_KILL_STATE_NONE) {
+		/* don't free this user until the kill is finished */
+		return TRUE;
+	}
+
+	if (user->weak) {
+		if (expire_timestamp + USER_NEAR_EXPIRING_MAX >= ioloop_time)
+			return TRUE;
+
+		i_warning("User %u weakness appears to be stuck, removing it",
+			  user->username_hash);
+	}
+	return FALSE;
 }
 
 static void user_directory_drop_expired(struct user_directory *dir)
@@ -79,11 +98,57 @@ struct user *user_directory_lookup(struct user_directory *dir,
 	return hash_table_lookup(dir->hash, POINTER_CAST(username_hash));
 }
 
+static void
+user_directory_insert_backwards(struct user_directory *dir,
+				struct user *pos, struct user *user)
+{
+	for (; pos != NULL; pos = pos->prev) {
+		if (pos->timestamp <= user->timestamp)
+			break;
+	}
+	if (pos == NULL)
+		DLLIST2_PREPEND(&dir->head, &dir->tail, user);
+	else {
+		user->prev = pos;
+		user->next = pos->next;
+		user->prev->next = user;
+		if (user->next != NULL)
+			user->next->prev = user;
+		else
+			dir->tail = user;
+	}
+}
+
+static void
+user_directory_insert_forwards(struct user_directory *dir,
+			       struct user *pos, struct user *user)
+{
+	for (; pos != NULL; pos = pos->next) {
+		if (pos->timestamp >= user->timestamp)
+			break;
+	}
+	if (pos == NULL)
+		DLLIST2_APPEND(&dir->head, &dir->tail, user);
+	else {
+		user->prev = pos->prev;
+		user->next = pos;
+		if (user->prev != NULL)
+			user->prev->next = user;
+		else
+			dir->head = user;
+		user->next->prev = user;
+	}
+}
+
 struct user *
 user_directory_add(struct user_directory *dir, unsigned int username_hash,
 		   struct mail_host *host, time_t timestamp)
 {
-	struct user *user, *pos;
+	struct user *user;
+
+	/* make sure we don't add timestamps higher than ioloop time */
+	if (timestamp > ioloop_time)
+		timestamp = ioloop_time;
 
 	user = i_new(struct user, 1);
 	user->username_hash = username_hash;
@@ -94,21 +159,24 @@ user_directory_add(struct user_directory *dir, unsigned int username_hash,
 	if (dir->tail == NULL || (time_t)dir->tail->timestamp <= timestamp)
 		DLLIST2_APPEND(&dir->head, &dir->tail, user);
 	else {
-		/* need to insert to correct position */
-		for (pos = dir->tail; pos != NULL; pos = pos->prev) {
-			if ((time_t)pos->timestamp <= timestamp)
-				break;
-		}
-		if (pos == NULL)
-			DLLIST2_PREPEND(&dir->head, &dir->tail, user);
-		else {
-			user->prev = pos;
-			user->next = pos->next;
-			user->prev->next = user;
-			user->next->prev = user;
+		/* need to insert to correct position. we should get here
+		   only when handshaking. the handshaking USER requests should
+		   come sorted by timestamp. so keep track of the previous
+		   insert position, the next USER should be inserted after
+		   it. */
+		if (dir->prev_insert_pos == NULL) {
+			/* find the position starting from tail */
+			user_directory_insert_backwards(dir, dir->tail, user);
+		} else if (timestamp < (time_t)dir->prev_insert_pos->timestamp) {
+			user_directory_insert_backwards(dir, dir->prev_insert_pos,
+							user);
+		} else {
+			user_directory_insert_forwards(dir, dir->prev_insert_pos,
+						       user);
 		}
 	}
 
+	dir->prev_insert_pos = user;
 	hash_table_insert(dir->hash, POINTER_CAST(user->username_hash), user);
 	return user;
 }
@@ -172,8 +240,7 @@ user_directory_init(unsigned int timeout_secs, const char *username_hash_fmt)
 		I_MAX(dir->user_near_expiring_secs, 1);
 
 	dir->username_hash_fmt = i_strdup(username_hash_fmt);
-	dir->hash = hash_table_create(default_pool, default_pool,
-				      0, NULL, NULL);
+	hash_table_create_direct(&dir->hash, default_pool, 0);
 	i_array_init(&dir->iters, 8);
 	return dir;
 }

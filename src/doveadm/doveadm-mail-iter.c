@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2010-2013 Dovecot authors, see the included COPYING file */
 
 #include "lib.h"
 #include "mail-storage.h"
@@ -29,12 +29,12 @@ int doveadm_mail_iter_init(struct doveadm_mail_cmd_context *ctx,
 
 	iter = i_new(struct doveadm_mail_iter, 1);
 	iter->ctx = ctx;
-	iter->box = mailbox_alloc(info->ns->list, info->name,
+	iter->box = mailbox_alloc(info->ns->list, info->vname,
 				  MAILBOX_FLAG_IGNORE_ACLS);
 	iter->search_args = search_args;
 
 	if (mailbox_sync(iter->box, MAILBOX_SYNC_FLAG_FULL_READ) < 0) {
-		i_error("Syncing mailbox %s failed: %s", info->name,
+		i_error("Syncing mailbox %s failed: %s", info->vname,
 			mailbox_get_last_error(iter->box, NULL));
 		doveadm_mail_failed_mailbox(ctx, iter->box);
 		mailbox_free(&iter->box);
@@ -83,7 +83,7 @@ doveadm_mail_iter_deinit_transaction(struct doveadm_mail_iter *iter,
 
 static int
 doveadm_mail_iter_deinit_full(struct doveadm_mail_iter **_iter,
-			      bool sync, bool commit)
+			      bool sync, bool commit, bool keep_box)
 {
 	struct doveadm_mail_iter *iter = *_iter;
 	int ret;
@@ -95,24 +95,32 @@ doveadm_mail_iter_deinit_full(struct doveadm_mail_iter **_iter,
 		ret = mailbox_sync(iter->box, 0);
 	if (ret < 0)
 		doveadm_mail_failed_mailbox(iter->ctx, iter->box);
-	mailbox_free(&iter->box);
+	if (!keep_box)
+		mailbox_free(&iter->box);
 	i_free(iter);
 	return ret;
 }
 
 int doveadm_mail_iter_deinit(struct doveadm_mail_iter **_iter)
 {
-	return doveadm_mail_iter_deinit_full(_iter, FALSE, TRUE);
+	return doveadm_mail_iter_deinit_full(_iter, FALSE, TRUE, FALSE);
 }
 
 int doveadm_mail_iter_deinit_sync(struct doveadm_mail_iter **_iter)
 {
-	return doveadm_mail_iter_deinit_full(_iter, TRUE, TRUE);
+	return doveadm_mail_iter_deinit_full(_iter, TRUE, TRUE, FALSE);
+}
+
+int doveadm_mail_iter_deinit_keep_box(struct doveadm_mail_iter **iter,
+				      struct mailbox **box_r)
+{
+	*box_r = (*iter)->box;
+	return doveadm_mail_iter_deinit_full(iter, FALSE, TRUE, TRUE);
 }
 
 void doveadm_mail_iter_deinit_rollback(struct doveadm_mail_iter **_iter)
 {
-	(void)doveadm_mail_iter_deinit_full(_iter, FALSE, FALSE);
+	(void)doveadm_mail_iter_deinit_full(_iter, FALSE, FALSE, FALSE);
 }
 
 bool doveadm_mail_iter_next(struct doveadm_mail_iter *iter,

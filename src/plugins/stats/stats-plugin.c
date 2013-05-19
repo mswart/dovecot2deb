@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2011-2013 Dovecot authors, see the included COPYING file */
 
 #include "lib.h"
 #include "ioloop.h"
@@ -20,6 +20,7 @@
 #define SESSION_STATS_FORCE_REFRESH_SECS (5*60)
 #define REFRESH_CHECK_INTERVAL 100
 #define MAIL_STATS_SOCKET_NAME "stats-mail"
+#define PROC_IO_PATH "/proc/self/io"
 
 #define USECS_PER_SEC 1000000
 
@@ -32,16 +33,26 @@ struct stats_transaction_context {
 	struct mailbox_transaction_stats prev_stats;
 };
 
+struct stats_storage {
+	union mail_storage_module_context module_ctx;
+
+	struct mail_storage_callbacks old_callbacks;
+	void *old_context;
+};
+
 struct stats_mailbox {
 	union mailbox_module_context module_ctx;
 };
 
-const char *stats_plugin_version = DOVECOT_VERSION;
+const char *stats_plugin_version = DOVECOT_ABI_VERSION;
 
 struct stats_user_module stats_user_module =
 	MODULE_CONTEXT_INIT(&mail_user_module_register);
 static MODULE_CONTEXT_DEFINE_INIT(stats_storage_module,
 				  &mail_storage_module_register);
+
+static bool proc_io_disabled = FALSE;
+static int proc_io_fd = -1;
 
 static struct stats_connection *global_stats_conn = NULL;
 static struct mail_user *stats_global_user = NULL;
@@ -106,44 +117,50 @@ process_io_buffer_parse(const char *buf, struct mail_stats *stats)
 	return 0;
 }
 
+static int process_io_open(void)
+{
+	if (proc_io_fd == -1) {
+		if (proc_io_disabled)
+			return -1;
+		proc_io_fd = open(PROC_IO_PATH, O_RDONLY);
+		if (proc_io_fd == -1) {
+			if (errno != ENOENT)
+				i_error("open(%s) failed: %m", PROC_IO_PATH);
+			proc_io_disabled = TRUE;
+			return -1;
+		}
+	}
+	return proc_io_fd;
+}
+
 static void process_read_io_stats(struct mail_stats *stats)
 {
-	const char *path = "/proc/self/io";
-	static bool io_disabled = FALSE;
 	char buf[1024];
 	int fd, ret;
 
-	if (io_disabled)
+	if ((fd = process_io_open()) == -1)
 		return;
 
-	fd = open(path, O_RDONLY);
-	if (fd == -1) {
-		if (errno != ENOENT)
-			i_error("open(%s) failed: %m", path);
-		io_disabled = TRUE;
-		return;
-	}
-	ret = read(fd, buf, sizeof(buf));
+	ret = pread(fd, buf, sizeof(buf), 0);
 	if (ret <= 0) {
 		if (ret == -1)
-			i_error("read(%s) failed: %m", path);
+			i_error("read(%s) failed: %m", PROC_IO_PATH);
 		else
-			i_error("read(%s) returned EOF", path);
+			i_error("read(%s) returned EOF", PROC_IO_PATH);
 	} else if (ret == sizeof(buf)) {
 		/* just shouldn't happen.. */
-		i_error("%s is larger than expected", path);
-		io_disabled = TRUE;
+		i_error("%s is larger than expected", PROC_IO_PATH);
+		proc_io_disabled = TRUE;
 	} else {
 		buf[ret] = '\0';
 		T_BEGIN {
 			if (process_io_buffer_parse(buf, stats) < 0) {
-				i_error("Invalid input in file %s", path);
-				io_disabled = TRUE;
+				i_error("Invalid input in file %s",
+					PROC_IO_PATH);
+				proc_io_disabled = TRUE;
 			}
 		} T_END;
 	}
-	if (close(fd) < 0)
-		i_error("close(%s) failed: %m", path);
 }
 
 void mail_stats_get(struct stats_user *suser, struct mail_stats *stats_r)
@@ -421,6 +438,33 @@ static bool stats_search_next_nonblock(struct mail_search_context *ctx,
 	return ret;
 }
 
+static void
+stats_notify_ok(struct mailbox *box, const char *text, void *context)
+{
+	struct stats_storage *sstorage = STATS_CONTEXT(box->storage);
+
+	/* most importantly we want to refresh stats for very long running
+	   mailbox syncs */
+	session_stats_refresh(box->storage->user);
+
+	if (sstorage->old_callbacks.notify_ok != NULL)
+		sstorage->old_callbacks.notify_ok(box, text, context);
+}
+
+static void stats_register_notify_callbacks(struct mail_storage *storage)
+{
+	struct stats_storage *sstorage = STATS_CONTEXT(storage);
+
+	if (sstorage != NULL)
+		return;
+
+	sstorage = p_new(storage->pool, struct stats_storage, 1);
+	sstorage->old_callbacks = storage->callbacks;
+	storage->callbacks.notify_ok = stats_notify_ok;
+
+	MODULE_CONTEXT_SET(storage, stats_storage_module, sstorage);
+}
+
 static void stats_mailbox_allocated(struct mailbox *box)
 {
 	struct mailbox_vfuncs *v = box->vlast;
@@ -429,6 +473,8 @@ static void stats_mailbox_allocated(struct mailbox *box)
 
 	if (suser == NULL)
 		return;
+
+	stats_register_notify_callbacks(box->storage);
 
 	sbox = p_new(box->pool, struct stats_mailbox, 1);
 	sbox->module_ctx.super = *v;
@@ -541,9 +587,13 @@ static void stats_user_created(struct mail_user *user)
 		stats_global_user = user;
 	} else if (stats_user_count == 1) {
 		/* second user connection. we'll need to start doing
-		   per-io callback tracking now. */
-		stats_add_session(stats_global_user);
-		stats_global_user = NULL;
+		   per-io callback tracking now. (we might have been doing it
+		   also previously but just temporarily quickly dropped to
+		   having 1 user, in which case stats_global_user=NULL) */
+		if (stats_global_user != NULL) {
+			stats_add_session(stats_global_user);
+			stats_global_user = NULL;
+		}
 	}
 	stats_user_count++;
 

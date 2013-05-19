@@ -1,4 +1,4 @@
-/* Copyright (c) 2004-2012 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2004-2013 Dovecot authors, see the included COPYING file */
 
 /*
    Modifying mbox can be slow, so we try to do it all at once minimizing the
@@ -45,6 +45,7 @@
 #include "istream-raw-mbox.h"
 #include "mbox-storage.h"
 #include "index-sync-changes.h"
+#include "mailbox-uidvalidity.h"
 #include "mbox-from.h"
 #include "mbox-file.h"
 #include "mbox-lock.h"
@@ -974,7 +975,8 @@ static void mbox_sync_hdr_update(struct mbox_sync_context *sync_ctx,
 		mail_ctx->need_rewrite = TRUE;
 	}
 	if (update->min_next_uid != 0 &&
-	    sync_ctx->base_uid_last <= update->min_next_uid) {
+	    sync_ctx->base_uid_last+1 < update->min_next_uid) {
+		i_assert(sync_ctx->next_uid <= update->min_next_uid);
 		sync_ctx->base_uid_last = update->min_next_uid-1;
 		sync_ctx->next_uid = update->min_next_uid;
 		mail_ctx->imapbase_rewrite = TRUE;
@@ -1407,14 +1409,22 @@ mbox_sync_index_update_ext_header(struct mbox_mailbox *mbox,
 	}
 }
 
+static uint32_t mbox_get_uidvalidity_next(struct mailbox_list *list)
+{
+	const char *path;
+
+	path = mailbox_list_get_root_forced(list, MAILBOX_LIST_PATH_TYPE_CONTROL);
+	path = t_strconcat(path, "/"MBOX_UIDVALIDITY_FNAME, NULL);
+	return mailbox_uidvalidity_next(list, path);
+}
+
 static int mbox_sync_update_index_header(struct mbox_sync_context *sync_ctx)
 {
 	struct mail_index_view *view;
 	const struct stat *st;
 	uint32_t first_recent_uid, seq, seq2;
 
-	st = i_stream_stat(sync_ctx->file_input, FALSE);
-	if (st == NULL) {
+	if (i_stream_stat(sync_ctx->file_input, FALSE, &st) < 0) {
 		mbox_set_syscall_error(sync_ctx->mbox, "i_stream_stat()");
 		return -1;
 	}
@@ -1442,8 +1452,7 @@ static int mbox_sync_update_index_header(struct mbox_sync_context *sync_ctx)
 				return -1;
 			}
 
-			st = i_stream_stat(sync_ctx->file_input, FALSE);
-			if (st == NULL) {
+			if (i_stream_stat(sync_ctx->file_input, FALSE, &st) < 0) {
 				mbox_set_syscall_error(sync_ctx->mbox,
 						       "i_stream_stat()");
 				return -1;
@@ -1462,7 +1471,7 @@ static int mbox_sync_update_index_header(struct mbox_sync_context *sync_ctx)
 	if (sync_ctx->base_uid_validity == 0) {
 		sync_ctx->base_uid_validity = sync_ctx->hdr->uid_validity != 0 ?
 			sync_ctx->hdr->uid_validity :
-			I_MAX((unsigned int)ioloop_time, 1);
+			mbox_get_uidvalidity_next(sync_ctx->mbox->box.list);
 	}
 	if (sync_ctx->base_uid_validity != sync_ctx->hdr->uid_validity) {
 		mail_index_update_header(sync_ctx->t,
@@ -1548,8 +1557,7 @@ static int mbox_sync_do(struct mbox_sync_context *sync_ctx,
 	unsigned int i;
 	int ret, partial;
 
-	st = i_stream_stat(sync_ctx->file_input, FALSE);
-	if (st == NULL) {
+	if (i_stream_stat(sync_ctx->file_input, FALSE, &st) < 0) {
 		mbox_set_syscall_error(sync_ctx->mbox, "i_stream_stat()");
 		return -1;
 	}
@@ -1639,7 +1647,7 @@ int mbox_sync_header_refresh(struct mbox_mailbox *mbox)
 	size_t data_size;
 
 	if (mail_index_refresh(mbox->box.index) < 0) {
-		mail_storage_set_index_error(&mbox->box);
+		mailbox_set_index_error(&mbox->box);
 		return -1;
 	}
 
@@ -1675,7 +1683,6 @@ int mbox_sync_get_guid(struct mbox_mailbox *mbox)
 	}
 	mbox_unlock(mbox, lock_id);
 	return ret;
-
 }
 
 int mbox_sync_has_changed(struct mbox_mailbox *mbox, bool leave_dirty)
@@ -1693,8 +1700,7 @@ int mbox_sync_has_changed_full(struct mbox_mailbox *mbox, bool leave_dirty,
 
 	if (mbox->mbox_file_stream != NULL && mbox->mbox_fd == -1) {
 		/* read-only stream */
-		st = i_stream_stat(mbox->mbox_file_stream, FALSE);
-		if (st == NULL) {
+		if (i_stream_stat(mbox->mbox_file_stream, FALSE, &st) < 0) {
 			if (errno == ENOENT) {
 				mailbox_set_deleted(&mbox->box);
 				return 0;
@@ -1791,7 +1797,7 @@ static int mbox_sync_int(struct mbox_mailbox *mbox, enum mbox_sync_flags flags,
 			return 0;
 
 		/* have to sync to make sure offsets have stayed the same */
-		(void)mbox_unlock(mbox, *lock_id);
+		mbox_unlock(mbox, *lock_id);
 		*lock_id = 0;
 	}
 
@@ -1830,7 +1836,7 @@ again:
 				    &sync_view, &trans, sync_flags);
 	if (ret <= 0) {
 		if (ret < 0)
-			mail_storage_set_index_error(&mbox->box);
+			mailbox_set_index_error(&mbox->box);
 		return ret;
 	}
 
@@ -1847,7 +1853,7 @@ again:
 		/* index may need to do internal syncing though, so commit
 		   instead of rollbacking. */
 		if (mail_index_sync_commit(&index_sync_ctx) < 0) {
-			mail_storage_set_index_error(&mbox->box);
+			mailbox_set_index_error(&mbox->box);
 			return -1;
 		}
 		return 0;
@@ -1922,7 +1928,7 @@ again:
 	if (ret < 0)
 		mail_index_sync_rollback(&index_sync_ctx);
 	else if (mail_index_sync_commit(&index_sync_ctx) < 0) {
-		mail_storage_set_index_error(&mbox->box);
+		mailbox_set_index_error(&mbox->box);
 		ret = -1;
 	}
 	sync_ctx.t = NULL;
@@ -1976,7 +1982,7 @@ int mbox_sync(struct mbox_mailbox *mbox, enum mbox_sync_flags flags)
 	if (lock_id != 0) {
 		if (ret < 0) {
 			/* syncing failed, don't leave it locked */
-			(void)mbox_unlock(mbox, lock_id);
+			mbox_unlock(mbox, lock_id);
 		} else if ((flags & MBOX_SYNC_LOCK_READING) == 0) {
 			if (mbox_unlock(mbox, lock_id) < 0)
 				ret = -1;

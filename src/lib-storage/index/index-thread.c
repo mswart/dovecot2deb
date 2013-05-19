@@ -1,4 +1,4 @@
-/* Copyright (c) 2002-2012 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2002-2013 Dovecot authors, see the included COPYING file */
 
 /* doc/thread-refs.txt describes the incremental algorithm we use here. */
 
@@ -325,6 +325,7 @@ static int mail_thread_index_map_build(struct mail_thread_context *ctx)
 	if (seq1 == 0) {
 		/* nothing is missing */
 		mail_index_strmap_view_sync_commit(&ctx->strmap_sync);
+		mailbox_header_lookup_unref(&headers_ctx);
 		return 0;
 	}
 
@@ -332,6 +333,8 @@ static int mail_thread_index_map_build(struct mail_thread_context *ctx)
 	mail_search_build_add_seqset(search_args, seq1, seq2);
 	search_ctx = mailbox_search_init(ctx->t, search_args, NULL,
 					 0, headers_ctx);
+	mailbox_header_lookup_unref(&headers_ctx);
+	mail_search_args_unref(&search_args);
 
 	while (mailbox_search_next(search_ctx, &mail)) {
 		if (mail_thread_map_add_mail(ctx, mail) < 0) {
@@ -349,11 +352,9 @@ static int mail_thread_index_map_build(struct mail_thread_context *ctx)
 	return ret;
 }
 
-static int msgid_map_cmp(const void *key, const void *value)
+static int msgid_map_cmp(const uint32_t *uid,
+			 const struct mail_index_strmap_rec *rec)
 {
-	const uint32_t *uid = key;
-	const struct mail_index_strmap_rec *rec = value;
-
 	return *uid < rec->uid ? -1 :
 		(*uid > rec->uid ? 1 : 0);
 }
@@ -384,8 +385,9 @@ static bool mail_thread_cache_update_removes(struct mail_thread_mailbox *tbox,
 	uids = array_get(&removed_uids, &uid_count);
 	for (i = j = 0; i < uid_count; i++) {
 		/* find and remove from the map */
-		bsearch_insert_pos(&uids[i].seq1, &msgid_map[j], map_count - j,
-				   sizeof(*msgid_map), msgid_map_cmp, &idx);
+		bsearch_insert_pos(&uids[i].seq1, &msgid_map[j],
+				   map_count - j, sizeof(*msgid_map),
+				   msgid_map_cmp, &idx);
 		j += idx;
 		if (j == map_count) {
 			/* all removals after this are about messages we never

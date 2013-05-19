@@ -1,10 +1,10 @@
-/* Copyright (c) 2005-2012 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2005-2013 Dovecot authors, see the included COPYING file */
 
 #include "common.h"
 #include "array.h"
 #include "fd-set-nonblock.h"
 #include "fd-close-on-exec.h"
-#include "network.h"
+#include "net.h"
 #ifdef HAVE_SYSTEMD
 #include "sd-daemon.h"
 #endif
@@ -14,6 +14,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <sys/socket.h>
 
 #define MIN_BACKLOG 4
 #define MAX_BACKLOG 511
@@ -85,7 +86,7 @@ static int service_unix_listener_listen(struct service_listener *l)
 		fd = net_connect_unix(set->path);
 		if (fd != -1 || errno != ECONNREFUSED || i >= 3) {
 			if (fd != -1)
-				(void)close(fd);
+				i_close_fd(&fd);
 			service_error(service, "Socket already exists: %s",
 				      set->path);
 			return 0;
@@ -103,7 +104,7 @@ static int service_unix_listener_listen(struct service_listener *l)
 	i_assert(fd != -1);
 
 	if (service_file_chown(l) < 0) {
-		(void)close(fd);
+		i_close_fd(&fd);
 		return -1;
 	}
 	net_set_nonblock(fd, TRUE);
@@ -242,6 +243,91 @@ static int service_listen(struct service *service)
 	return ret;
 }
 
+#ifdef HAVE_SYSTEMD
+static int get_socket_info(int fd, unsigned int *family, unsigned int *port)
+{
+	union sockaddr_union {
+		struct sockaddr sa;
+		struct sockaddr_in in4;
+		struct sockaddr_in6 in6;
+	} sockaddr;
+	socklen_t l;
+
+	if (port) *port = -1;
+	if (family) *family = -1;
+
+	memset(&sockaddr, 0, sizeof(sockaddr));
+	l = sizeof(sockaddr);
+
+	if (getsockname(fd, &sockaddr.sa, &l) < 0)
+	      return -errno;
+
+	if (family) *family = sockaddr.sa.sa_family;
+	if (port) {
+		if (sockaddr.sa.sa_family == AF_INET) {
+			if (l < sizeof(struct sockaddr_in))
+				return -EINVAL;
+
+			*port = ntohs(sockaddr.in4.sin_port);
+		} else {
+			if (l < sizeof(struct sockaddr_in6))
+				return -EINVAL;
+
+			*port = ntohs(sockaddr.in6.sin6_port);
+		}
+	}
+	return 0;
+}
+
+static int services_verify_systemd(struct service_list *service_list)
+{
+	struct service *const *services;
+	static int sd_fds = -1;
+	int fd, fd_max;
+
+	if (sd_fds < 0) {
+		sd_fds = sd_listen_fds(0);
+		if (sd_fds == -1) {
+			i_error("sd_listen_fds() failed: %m");
+			return -1;
+		}
+	}
+
+	fd_max = SD_LISTEN_FDS_START + sd_fds - 1;
+	for (fd = SD_LISTEN_FDS_START; fd <= fd_max; fd++) {
+		if (sd_is_socket_inet(fd, 0, SOCK_STREAM, 1, 0) > 0) {
+			int found = FALSE;
+			unsigned int port, family;
+			get_socket_info(fd, &family, &port);
+			
+			array_foreach(&service_list->services, services) {
+				struct service_listener *const *listeners;
+
+				array_foreach(&(*services)->listeners, listeners) {
+					struct service_listener *l = *listeners;
+					if (l->type != SERVICE_LISTENER_INET)
+						continue;
+					if (l->set.inetset.set->port == port &&
+					    l->set.inetset.ip.family == family) {
+						found = TRUE;
+						break;
+					}
+				}
+				if (found) break;
+			}
+			if (!found) {
+				i_error("systemd listens on port %d, but it's not configured in Dovecot. Closing.",port);
+				if (shutdown(fd, SHUT_RDWR) < 0 && errno != ENOTCONN)
+					i_error("shutdown() failed: %m");
+				if (dup2(null_fd, fd) < 0)
+					i_error("dup2() failed: %m");
+			}
+		}
+	}
+	return 0;
+}
+#endif
+
 int services_listen(struct service_list *service_list)
 {
 	struct service *const *services;
@@ -252,6 +338,11 @@ int services_listen(struct service_list *service_list)
 		if (ret2 < ret)
 			ret = ret2;
 	}
+
+#ifdef HAVE_SYSTEMD
+	if (ret > 0)
+		services_verify_systemd(service_list);
+#endif
 	return ret;
 }
 
@@ -284,8 +375,8 @@ int services_listen_using(struct service_list *new_service_list,
 			  struct service_list *old_service_list)
 {
 	struct service *const *services, *old_service, *new_service;
-	ARRAY_DEFINE(new_listeners_arr, struct service_listener *);
-	ARRAY_DEFINE(old_listeners_arr, struct service_listener *);
+	ARRAY(struct service_listener *) new_listeners_arr;
+	ARRAY(struct service_listener *) old_listeners_arr;
 	struct service_listener *const *new_listeners, *const *old_listeners;
 	unsigned int i, j, count, new_count, old_count;
 
