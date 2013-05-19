@@ -39,7 +39,7 @@ index 0000000..ab35c86
 +
 +#include "lib.h"
 +#include "ioloop.h"
-+#include "network.h"
++#include "net.h"
 +
 +#include <stdlib.h>
 +
