@@ -22,7 +22,7 @@ index 687ec24..c463065 100644
 +exampledir = $(datarootdir)/doc/dovecot-core/example-config
  example_DATA = \
  	dovecot.conf \
- 	dovecot-db.conf.ext \
+ 	dovecot-dict-auth.conf.ext \
 diff --git a/doc/example-config/conf.d/Makefile.in b/doc/example-config/conf.d/Makefile.in
 index 8292a36..49f93f2 100644
 --- a/doc/example-config/conf.d/Makefile.in

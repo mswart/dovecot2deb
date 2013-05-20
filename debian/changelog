@@ -1,3 +1,10 @@
+dovecot (1:2.2.2-0) precise; urgency=low
+
+  * [f2a0cdf] Imported Upstream version 2.2.2
+  * [0b5f5b5] Adjust exampledir patch to dovecot 2.2.2
+
+ -- Malte Swart <packages@devtation.de>  Mon, 20 May 2013 20:41:13 +0200
+
 dovecot (1:2.2.1-0) precise; urgency=low
 
   * [401fc93] Imported upstream version 2.2.1
