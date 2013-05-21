@@ -1,3 +1,9 @@
+dovecot (1:2.2.2-1) unstable; urgency=low
+
+  * [f4247c7] Remove handling of dovecot-db.conf.ext config file
+
+ -- Malte Swart <packages@devtation.de>  Wed, 22 May 2013 00:09:50 +0200
+
 dovecot (1:2.2.2-0) unstable; urgency=low
 
   * [f2a0cdf] Imported Upstream version 2.2.2
