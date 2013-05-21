@@ -6,7 +6,6 @@ export PATH
 
 if [ "$1" = "purge" ] ; then
 	CONFFILES="/etc/dovecot/dovecot.conf \
-		/etc/dovecot/dovecot-db.conf.ext \
 		/etc/dovecot/dovecot-dict-sql.conf.ext \
 		/etc/dovecot/dovecot-sql.conf.ext \
 		/etc/dovecot/conf.d/10-auth.conf \
