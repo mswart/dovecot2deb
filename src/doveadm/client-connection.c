@@ -74,6 +74,7 @@ doveadm_mail_cmd_server_parse(const char *cmd_name,
 					"Client sent unknown parameter: %c",
 					cmd->name, c);
 				ctx->v.deinit(ctx);
+				pool_unref(&ctx->pool);
 				return NULL;
 			}
 		}
@@ -86,6 +87,7 @@ doveadm_mail_cmd_server_parse(const char *cmd_name,
 		i_error("doveadm %s: Client sent unknown parameter: %s",
 			cmd->name, argv[0]);
 		ctx->v.deinit(ctx);
+		pool_unref(&ctx->pool);
 		return NULL;
 	}
 	ctx->args = (const void *)argv;
@@ -125,7 +127,8 @@ doveadm_mail_cmd_server_run(struct client_connection *conn,
 		o_stream_nsend_str(conn->output, "\n-NOUSER\n");
 	} else if (ctx->exit_code != 0) {
 		/* maybe not an error, but not a full success either */
-		o_stream_nsend(conn->output, "\n-\n", 3);
+		o_stream_nsend_str(conn->output,
+				   t_strdup_printf("\n-%u\n", ctx->exit_code));
 	} else {
 		o_stream_nsend(conn->output, "\n+\n", 3);
 	}
@@ -166,6 +169,10 @@ static bool client_handle_command(struct client_connection *conn, char **args)
 
 	memset(&input, 0, sizeof(input));
 	input.service = "doveadm";
+	input.local_ip = conn->local_ip;
+	input.remote_ip = conn->remote_ip;
+	input.local_port = conn->local_port;
+	input.remote_port = conn->remote_port;
 
 	for (argc = 0; args[argc] != NULL; argc++)
 		args[argc] = str_tabunescape(args[argc]);
@@ -274,6 +281,19 @@ client_connection_authenticate(struct client_connection *conn)
 	return 1;
 }
 
+static void client_log_disconnect_error(struct client_connection *conn)
+{
+	const char *error;
+
+	error = conn->ssl_iostream == NULL ? NULL :
+		ssl_iostream_get_last_error(conn->ssl_iostream);
+	if (error == NULL) {
+		error = conn->input->stream_errno == 0 ? "EOF" :
+			strerror(conn->input->stream_errno);
+	}
+	i_error("doveadm client disconnected before handshake: %s", error);
+}
+
 static void client_connection_input(struct client_connection *conn)
 {
 	const char *line;
@@ -282,8 +302,10 @@ static void client_connection_input(struct client_connection *conn)
 
 	if (!conn->handshaked) {
 		if ((line = i_stream_read_next_line(conn->input)) == NULL) {
-			if (conn->input->eof || conn->input->stream_errno != 0)
+			if (conn->input->eof || conn->input->stream_errno != 0) {
+				client_log_disconnect_error(conn);
 				client_connection_destroy(&conn);
+			}
 			return;
 		}
 
@@ -390,7 +412,7 @@ struct client_connection *
 client_connection_create(int fd, int listen_fd, bool ssl)
 {
 	struct client_connection *conn;
-	unsigned int port;
+	const char *ip;
 	pool_t pool;
 
 	pool = pool_alloconly_create("doveadm client", 1024*16);
@@ -402,8 +424,15 @@ client_connection_create(int fd, int listen_fd, bool ssl)
 	conn->output = o_stream_create_fd(fd, (size_t)-1, FALSE);
 	o_stream_set_no_error_handling(conn->output, TRUE);
 
-	(void)net_getsockname(fd, &conn->local_ip, &port);
-	(void)net_getpeername(fd, &conn->remote_ip, &port);
+	(void)net_getsockname(fd, &conn->local_ip, &conn->local_port);
+	(void)net_getpeername(fd, &conn->remote_ip, &conn->remote_port);
+
+	i_stream_set_name(conn->input, net_ip2addr(&conn->remote_ip));
+	o_stream_set_name(conn->output, net_ip2addr(&conn->remote_ip));
+
+	ip = net_ip2addr(&conn->remote_ip);
+	if (ip[0] != '\0')
+		i_set_failure_prefix("doveadm(%s): ", ip);
 
 	if (client_connection_read_settings(conn) < 0) {
 		client_connection_destroy(&conn);

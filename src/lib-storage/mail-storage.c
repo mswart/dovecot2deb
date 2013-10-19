@@ -298,14 +298,15 @@ mail_storage_find(struct mail_user *user,
 	return NULL;
 }
 
-int mail_storage_create(struct mail_namespace *ns, const char *driver,
-			enum mail_storage_flags flags, const char **error_r)
+int mail_storage_create_full(struct mail_namespace *ns, const char *driver,
+			     const char *data, enum mail_storage_flags flags,
+			     struct mail_storage **storage_r,
+			     const char **error_r)
 {
 	struct mail_storage *storage_class, *storage = NULL;
 	struct mailbox_list *list;
 	struct mailbox_list_settings list_set;
 	enum mailbox_list_flags list_flags = 0;
-	const char *data = ns->set->location;
 	const char *p;
 
 	if ((flags & MAIL_STORAGE_FLAG_KEEP_HEADER_MD5) == 0 &&
@@ -369,6 +370,7 @@ int mail_storage_create(struct mail_namespace *ns, const char *driver,
 		/* using an existing storage */
 		storage->refcount++;
 		mail_namespace_add_storage(ns, storage);
+		*storage_r = storage;
 		return 0;
 	}
 
@@ -392,8 +394,18 @@ int mail_storage_create(struct mail_namespace *ns, const char *driver,
 	} T_END;
 
 	DLLIST_PREPEND(&ns->user->storages, storage);
-        mail_namespace_add_storage(ns, storage);
+	mail_namespace_add_storage(ns, storage);
+	*storage_r = storage;
 	return 0;
+}
+
+int mail_storage_create(struct mail_namespace *ns, const char *driver,
+			enum mail_storage_flags flags, const char **error_r)
+{
+	struct mail_storage *storage;
+
+	return mail_storage_create_full(ns, driver, ns->set->location,
+					flags, &storage, error_r);
 }
 
 void mail_storage_unref(struct mail_storage **_storage)
@@ -639,6 +651,8 @@ struct mailbox *mailbox_alloc(struct mailbox_list *list, const char *vname,
 	struct mailbox_list *new_list = list;
 	struct mail_storage *storage;
 	struct mailbox *box;
+	enum mail_error open_error = 0;
+	const char *errstr = NULL;
 
 	i_assert(uni_utf8_str_is_valid(vname));
 
@@ -654,14 +668,19 @@ struct mailbox *mailbox_alloc(struct mailbox_list *list, const char *vname,
 			vname = t_strconcat("INBOX", vname + 5, NULL);
 	}
 
-	if (mailbox_list_get_storage(&new_list, vname, &storage) < 0) {
-		/* just use the first storage. FIXME: does this break? */
-		storage = list->ns->storage;
-	}
-
 	T_BEGIN {
+		if (mailbox_list_get_storage(&new_list, vname, &storage) < 0) {
+			/* do a delayed failure at mailbox_open() */
+			storage = mail_namespace_get_default_storage(list->ns);
+			errstr = mailbox_list_get_last_error(new_list, &open_error);
+			errstr = t_strdup(errstr);
+		}
+
 		box = storage->v.mailbox_alloc(storage, new_list, vname, flags);
 		box->set = mailbox_settings_find(storage->user, vname);
+		box->open_error = open_error;
+		if (open_error != 0)
+			mail_storage_set_error(storage, open_error, errstr);
 		hook_mailbox_allocated(box);
 	} T_END;
 
@@ -731,7 +750,7 @@ static int mailbox_autocreate(struct mailbox *box)
 
 	if (mailbox_create(box, NULL, FALSE) < 0) {
 		errstr = mailbox_get_last_error(box, &error);
-		if (error != MAIL_ERROR_NOTFOUND) {
+		if (error != MAIL_ERROR_EXISTS) {
 			mail_storage_set_critical(box->storage,
 				"Failed to autocreate mailbox %s: %s",
 				box->vname, errstr);
@@ -1194,6 +1213,11 @@ bool mailbox_equals(const struct mailbox *box1,
 		strcasecmp(vname2, "INBOX") == 0;
 }
 
+bool mailbox_is_any_inbox(struct mailbox *box)
+{
+	return box->inbox_any;
+}
+
 int mailbox_create(struct mailbox *box, const struct mailbox_update *update,
 		   bool directory)
 {
@@ -1267,11 +1291,6 @@ int mailbox_delete(struct mailbox *box)
 	if (*box->name == '\0') {
 		mail_storage_set_error(box->storage, MAIL_ERROR_PARAMS,
 				       "Storage root can't be deleted");
-		return -1;
-	}
-	if (box->inbox_any) {
-		mail_storage_set_error(box->storage, MAIL_ERROR_NOTPOSSIBLE,
-				       "INBOX can't be deleted.");
 		return -1;
 	}
 
@@ -1817,15 +1836,15 @@ int mailbox_transaction_commit_get_changes(
 	struct mail_transaction_commit_changes *changes_r)
 {
 	struct mailbox_transaction_context *t = *_t;
+	struct mailbox *box = t->box;
 	unsigned int save_count = t->save_count;
 	int ret;
 
-	t->box->transaction_count--;
 	changes_r->pool = NULL;
 
 	*_t = NULL;
 	T_BEGIN {
-		ret = t->box->v.transaction_commit(t, changes_r);
+		ret = box->v.transaction_commit(t, changes_r);
 	} T_END;
 	/* either all the saved messages get UIDs or none, because a) we
 	   failed, b) MAILBOX_TRANSACTION_FLAG_ASSIGN_UIDS not set,
@@ -1833,6 +1852,11 @@ int mailbox_transaction_commit_get_changes(
 	i_assert(ret < 0 ||
 		 seq_range_count(&changes_r->saved_uids) == save_count ||
 		 array_count(&changes_r->saved_uids) == 0);
+	/* decrease the transaction count only after transaction_commit().
+	   that way if it creates and destroys transactions internally, we
+	   don't see transaction_count=0 until the parent transaction is fully
+	   finished */
+	box->transaction_count--;
 	if (ret < 0 && changes_r->pool != NULL)
 		pool_unref(&changes_r->pool);
 	return ret;
@@ -1841,11 +1865,11 @@ int mailbox_transaction_commit_get_changes(
 void mailbox_transaction_rollback(struct mailbox_transaction_context **_t)
 {
 	struct mailbox_transaction_context *t = *_t;
-
-	t->box->transaction_count--;
+	struct mailbox *box = t->box;
 
 	*_t = NULL;
-	t->box->v.transaction_rollback(t);
+	box->v.transaction_rollback(t);
+	box->transaction_count--;
 }
 
 unsigned int mailbox_transaction_get_count(const struct mailbox *box)

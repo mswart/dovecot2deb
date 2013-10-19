@@ -137,6 +137,7 @@ master_service_init(const char *name, enum master_service_flags flags,
 	i_set_failure_prefix("%s(init): ", name);
 
 	/* ignore these signals as early as possible */
+	lib_signals_init();
         lib_signals_ignore(SIGPIPE, TRUE);
         lib_signals_ignore(SIGALRM, FALSE);
 
@@ -234,6 +235,12 @@ master_service_init(const char *name, enum master_service_flags flags,
 	} else {
 		master_service_set_client_limit(service, 1);
 		master_service_set_service_count(service, 1);
+	}
+	if ((flags & MASTER_SERVICE_FLAG_KEEP_CONFIG_OPEN) != 0) {
+		/* since we're going to keep the config socket open anyway,
+		   open it now so we can read settings even after privileges
+		   are dropped. */
+		master_service_config_socket_try_open(service);
 	}
 
 	master_service_verify_version_string(service);
@@ -428,7 +435,6 @@ void master_service_init_finish(struct master_service *service)
 	struct stat st;
 
 	/* set default signal handlers */
-	lib_signals_init();
 	if ((service->flags & MASTER_SERVICE_FLAG_STANDALONE) == 0)
 		sigint_flags |= LIBSIG_FLAG_RESTART;
         lib_signals_set_handler(SIGINT, sigint_flags, sig_die, service);

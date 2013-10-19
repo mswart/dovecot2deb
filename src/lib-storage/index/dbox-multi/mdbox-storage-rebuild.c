@@ -58,6 +58,9 @@ struct mdbox_storage_rebuild_context {
 	struct mailbox_list *default_list;
 
 	struct rebuild_msg_mailbox prev_msg;
+
+	unsigned int have_pop3_uidls:1;
+	unsigned int have_pop3_orders:1;
 };
 
 static struct mdbox_storage_rebuild_context *
@@ -126,6 +129,15 @@ static int mdbox_rebuild_msg_uid_cmp(struct mdbox_rebuild_msg *const *m1,
 	return 0;
 }
 
+static void rebuild_scan_metadata(struct mdbox_storage_rebuild_context *ctx,
+				  struct dbox_file *file)
+{
+	if (dbox_file_metadata_get(file, DBOX_METADATA_POP3_UIDL) != NULL)
+		ctx->have_pop3_uidls = TRUE;
+	if (dbox_file_metadata_get(file, DBOX_METADATA_POP3_ORDER) != NULL)
+		ctx->have_pop3_orders = TRUE;
+}
+
 static int rebuild_file_mails(struct mdbox_storage_rebuild_context *ctx,
 			      struct dbox_file *file, uint32_t file_id)
 {
@@ -177,6 +189,7 @@ static int rebuild_file_mails(struct mdbox_storage_rebuild_context *ctx,
 			ret = 0;
 			break;
 		}
+		rebuild_scan_metadata(ctx, file);
 
 		rec = p_new(ctx->pool, struct mdbox_rebuild_msg, 1);
 		rec->file_id = file_id;
@@ -466,7 +479,7 @@ rebuild_mailbox_multi(struct mdbox_storage_rebuild_context *ctx,
 
 static void
 mdbox_rebuild_get_header(struct mail_index_view *view, uint32_t hdr_ext_id,
-			 struct mdbox_index_header *hdr_r)
+			 struct mdbox_index_header *hdr_r, bool *need_resize_r)
 {
 	const void *data;
 	size_t data_size;
@@ -474,19 +487,25 @@ mdbox_rebuild_get_header(struct mail_index_view *view, uint32_t hdr_ext_id,
 	mail_index_get_header_ext(view, hdr_ext_id, &data, &data_size);
 	memset(hdr_r, 0, sizeof(*hdr_r));
 	memcpy(hdr_r, data, I_MIN(data_size, sizeof(*hdr_r)));
+	*need_resize_r = data_size < sizeof(*hdr_r);
 }
 
-static void mdbox_header_update(struct index_rebuild_context *rebuild_ctx,
+static void mdbox_header_update(struct mdbox_storage_rebuild_context *ctx,
+				struct index_rebuild_context *rebuild_ctx,
 				struct mdbox_mailbox *mbox)
 {
 	struct mdbox_index_header hdr, backup_hdr;
+	bool need_resize, need_resize_backup;
 
-	mdbox_rebuild_get_header(rebuild_ctx->view, mbox->hdr_ext_id, &hdr);
-	if (rebuild_ctx->backup_view == NULL)
+	mdbox_rebuild_get_header(rebuild_ctx->view, mbox->hdr_ext_id,
+				 &hdr, &need_resize);
+	if (rebuild_ctx->backup_view == NULL) {
 		memset(&backup_hdr, 0, sizeof(backup_hdr));
-	else {
+		need_resize = TRUE;
+	} else {
 		mdbox_rebuild_get_header(rebuild_ctx->backup_view,
-					 mbox->hdr_ext_id, &backup_hdr);
+					 mbox->hdr_ext_id, &backup_hdr,
+					 &need_resize_backup);
 	}
 
 	/* make sure we have valid mailbox guid */
@@ -502,7 +521,16 @@ static void mdbox_header_update(struct index_rebuild_context *rebuild_ctx,
 	/* update map's uid-validity */
 	hdr.map_uid_validity = mdbox_map_get_uid_validity(mbox->storage->map);
 
+	if (ctx->have_pop3_uidls)
+		hdr.flags |= DBOX_INDEX_HEADER_FLAG_HAVE_POP3_UIDLS;
+	if (ctx->have_pop3_orders)
+		hdr.flags |= DBOX_INDEX_HEADER_FLAG_HAVE_POP3_ORDERS;
+
 	/* and write changes */
+	if (need_resize) {
+		mail_index_ext_resize_hdr(rebuild_ctx->trans, mbox->hdr_ext_id,
+					  sizeof(hdr));
+	}
 	mail_index_update_header_ext(rebuild_ctx->trans, mbox->hdr_ext_id, 0,
 				     &hdr, sizeof(hdr));
 }
@@ -522,7 +550,11 @@ rebuild_mailbox(struct mdbox_storage_rebuild_context *ctx,
 
 	box = mailbox_alloc(ns->list, vname, MAILBOX_FLAG_READONLY |
 			    MAILBOX_FLAG_IGNORE_ACLS);
-	i_assert(box->storage == &ctx->storage->storage.storage);
+	if (box->storage != &ctx->storage->storage.storage) {
+		/* the namespace has multiple storages. */
+		mailbox_free(&box);
+		return 0;
+	}
 	if (mailbox_open(box) < 0) {
 		error = mailbox_get_last_mail_error(box);
 		i_error("Couldn't open mailbox '%s': %s",
@@ -545,7 +577,7 @@ rebuild_mailbox(struct mdbox_storage_rebuild_context *ctx,
 	}
 
 	rebuild_ctx = index_index_rebuild_init(&mbox->box, view, trans);
-	mdbox_header_update(rebuild_ctx, mbox);
+	mdbox_header_update(ctx, rebuild_ctx, mbox);
 	rebuild_mailbox_multi(ctx, rebuild_ctx, mbox, view, trans);
 	index_index_rebuild_deinit(&rebuild_ctx, dbox_get_uidvalidity_next);
 
@@ -643,6 +675,7 @@ static int rebuild_restore_msg(struct mdbox_storage_rebuild_context *ctx,
 			mailbox = mailbox_list_get_vname(ctx->default_list, mailbox);
 			mailbox = t_strdup(mailbox);
 		}
+		rebuild_scan_metadata(ctx, file);
 	}
 	dbox_file_unref(&file);
 	if (ret <= 0 || deleted) {

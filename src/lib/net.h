@@ -44,9 +44,22 @@ struct net_unix_cred {
 #  define MAX_IP_LEN 20
 #endif
 
+#ifndef HAVE_IPV6
+#  undef EAI_NONAME
+#  define EAI_NONAME NO_ADDRESS
+#  undef EAI_FAIL
+#  define EAI_FAIL NO_RECOVERY
+#endif
+
 #define IPADDR_IS_V4(ip) ((ip)->family == AF_INET)
 #define IPADDR_IS_V6(ip) ((ip)->family == AF_INET6)
 #define IPADDR_BITS(ip) (IPADDR_IS_V4(ip) ? 32 : 128)
+
+enum net_listen_flags {
+	/* Try to use SO_REUSEPORT if available. If it's not, this flag is
+	   cleared on return. */
+	NET_LISTEN_FLAG_REUSEPORT	= 0x01
+};
 
 /* Returns TRUE if IPs are the same */
 bool net_ip_compare(const struct ip_addr *ip1, const struct ip_addr *ip2);
@@ -84,6 +97,8 @@ void net_get_ip_any6(struct ip_addr *ip);
 
 /* Listen for connections on a socket */
 int net_listen(const struct ip_addr *my_ip, unsigned int *port, int backlog);
+int net_listen_full(const struct ip_addr *my_ip, unsigned int *port,
+		    enum net_listen_flags *flags, int backlog);
 /* Listen for connections on an UNIX socket */
 int net_listen_unix(const char *path, int backlog);
 /* Like net_listen_unix(), but if socket already exists, try to connect to it.
@@ -105,6 +120,9 @@ ssize_t net_transmit(int fd, const void *data, size_t len);
    to be free'd. Returns 0 = ok, others = error code for net_gethosterror() */
 int net_gethostbyname(const char *addr, struct ip_addr **ips,
 		      unsigned int *ips_count);
+/* Return host for the IP address. Returns 0 = ok, others = error code for
+   net_gethosterror(). */
+int net_gethostbyaddr(const struct ip_addr *ip, const char **name_r);
 /* get error of net_gethostname() */
 const char *net_gethosterror(int error) ATTR_CONST;
 /* return TRUE if host lookup failed because it didn't exist (ie. not
@@ -123,7 +141,7 @@ int net_getunixname(int fd, const char **name_r);
    unavailable. */
 int net_getunixcred(int fd, struct net_unix_cred *cred_r);
 
-/* Returns ip_addr as string, or NULL if ip is invalid. */
+/* Returns ip_addr as string, or "" if ip isn't valid IPv4 or IPv6 address. */
 const char *net_ip2addr(const struct ip_addr *ip);
 /* char* -> struct ip_addr translation. */
 int net_addr2ip(const char *addr, struct ip_addr *ip);

@@ -60,7 +60,7 @@ auth_request_new(const struct mech_module *mech)
 
 	request->set = global_auth_settings;
 	request->mech = mech;
-	request->mech_name = mech == NULL ? NULL : mech->mech_name;
+	request->mech_name = mech->mech_name;
 	request->extra_fields = auth_fields_init(request->pool);
 	return request;
 }
@@ -605,10 +605,20 @@ auth_request_handle_passdb_callback(enum passdb_result *result,
 			/* this passdb lookup succeeded, preserve its extra
 			   fields */
 			auth_fields_snapshot(request->extra_fields);
+			request->snapshot_has_userdb_reply =
+				request->userdb_reply != NULL;
+			if (request->userdb_reply != NULL)
+				auth_fields_snapshot(request->userdb_reply);
 		} else {
 			/* this passdb lookup failed, remove any extra fields
 			   it set */
 			auth_fields_rollback(request->extra_fields);
+			if (request->userdb_reply == NULL)
+				;
+			else if (!request->snapshot_has_userdb_reply)
+				request->userdb_reply = NULL;
+			else
+				auth_fields_rollback(request->userdb_reply);
 		}
 
 		if (*result == PASSDB_RESULT_USER_UNKNOWN) {
@@ -835,7 +845,7 @@ void auth_request_lookup_credentials(struct auth_request *request,
 				     const char *scheme,
 				     lookup_credentials_callback_t *callback)
 {
-	struct passdb_module *passdb = request->passdb->passdb;
+	struct passdb_module *passdb;
 	const char *cache_key, *cache_cred, *cache_scheme;
 	enum passdb_result result;
 
@@ -845,6 +855,7 @@ void auth_request_lookup_credentials(struct auth_request *request,
 		callback(PASSDB_RESULT_USER_UNKNOWN, NULL, 0, request);
 		return;
 	}
+	passdb = request->passdb->passdb;
 
 	request->credentials_scheme = p_strdup(request->pool, scheme);
 	request->private_callback.lookup_credentials = callback;
@@ -923,6 +934,11 @@ static void auth_request_userdb_save_cache(struct auth_request *request,
 		auth_fields_append(request->userdb_reply, str,
 				   AUTH_FIELD_FLAG_CHANGED,
 				   AUTH_FIELD_FLAG_CHANGED);
+		if (str_len(str) == 0) {
+			/* no userdb fields. but we can't save an empty string,
+			   since that means "user unknown". */
+			str_append(str, AUTH_REQUEST_USER_KEY_IGNORE);
+		}
 		cache_value = str_c(str);
 	}
 	/* last_success has no meaning with userdb */
@@ -1390,6 +1406,16 @@ void auth_request_set_field(struct auth_request *request,
 	}
 }
 
+void auth_request_set_null_field(struct auth_request *request, const char *name)
+{
+	if (strncmp(name, "userdb_", 7) == 0) {
+		/* make sure userdb prefetch is used even if all the fields
+		   were returned as NULL. */
+		if (request->userdb_reply == NULL)
+			auth_request_init_userdb_reply(request);
+	}
+}
+
 void auth_request_set_field_keyvalue(struct auth_request *request,
 				     const char *field,
 				     const char *default_scheme)
@@ -1503,6 +1529,8 @@ void auth_request_set_userdb_field(struct auth_request *request,
 			warned = TRUE;
 		}
 		name = "system_groups_user";
+	} else if (strcmp(name, AUTH_REQUEST_USER_KEY_IGNORE) == 0) {
+		return;
 	}
 
 	auth_fields_add(request->userdb_reply, name, value, 0);
@@ -1648,6 +1676,7 @@ auth_request_proxy_dns_callback(const struct dns_lookup_result *result,
 	}
 	if (ctx->callback != NULL)
 		ctx->callback(result->ret == 0, request);
+	auth_request_unref(&request);
 }
 
 static int auth_request_proxy_host_lookup(struct auth_request *request,
@@ -1675,12 +1704,11 @@ static int auth_request_proxy_host_lookup(struct auth_request *request,
 
 	ctx = p_new(request->pool, struct auth_request_proxy_dns_lookup_ctx, 1);
 	ctx->request = request;
+	auth_request_ref(request);
 
 	if (dns_lookup(host, &dns_set, auth_request_proxy_dns_callback, ctx,
 		       &ctx->dns_lookup) < 0) {
 		/* failed early */
-		request->internal_failure = TRUE;
-		auth_request_proxy_finish_failure(request);
 		return -1;
 	}
 	ctx->callback = callback;
@@ -1754,20 +1782,10 @@ static void log_password_failure(struct auth_request *request,
 	auth_request_log_debug(request, subsystem, "%s", str_c(str));
 }
 
-void auth_request_log_password_mismatch(struct auth_request *request,
-					const char *subsystem)
+static void
+auth_request_append_password(struct auth_request *request, string_t *str)
 {
-	string_t *str;
 	const char *log_type = request->set->verbose_passwords;
-
-	if (strcmp(log_type, "no") == 0) {
-		auth_request_log_info(request, subsystem, "Password mismatch");
-		return;
-	}
-
-	str = t_str_new(128);
-	get_log_prefix(str, request, subsystem);
-	str_append(str, "Password mismatch ");
 
 	if (strcmp(log_type, "plain") == 0) {
 		str_printfa(str, "(given password: %s)",
@@ -1782,7 +1800,41 @@ void auth_request_log_password_mismatch(struct auth_request *request,
 	} else {
 		i_unreached();
 	}
+}
 
+void auth_request_log_password_mismatch(struct auth_request *request,
+					const char *subsystem)
+{
+	string_t *str;
+
+	if (strcmp(request->set->verbose_passwords, "no") == 0) {
+		auth_request_log_info(request, subsystem, "Password mismatch");
+		return;
+	}
+
+	str = t_str_new(128);
+	get_log_prefix(str, request, subsystem);
+	str_append(str, "Password mismatch ");
+
+	auth_request_append_password(request, str);
+	i_info("%s", str_c(str));
+}
+
+void auth_request_log_unknown_user(struct auth_request *request,
+				   const char *subsystem)
+{
+	string_t *str;
+
+	if (strcmp(request->set->verbose_passwords, "no") == 0 ||
+	    !request->set->verbose) {
+		auth_request_log_info(request, subsystem, "unknown user");
+		return;
+	}
+	str = t_str_new(128);
+	get_log_prefix(str, request, subsystem);
+	str_append(str, "unknown user ");
+
+	auth_request_append_password(request, str);
 	i_info("%s", str_c(str));
 }
 
@@ -1863,7 +1915,8 @@ auth_request_str_escape(const char *string,
 	return str_escape(string);
 }
 
-const struct var_expand_table auth_request_var_expand_static_tab[] = {
+const struct var_expand_table
+auth_request_var_expand_static_tab[AUTH_REQUEST_VAR_TAB_COUNT+1] = {
 	{ 'u', NULL, "user" },
 	{ 'n', NULL, "username" },
 	{ 'd', NULL, "domain" },
@@ -1887,6 +1940,9 @@ const struct var_expand_table auth_request_var_expand_static_tab[] = {
 	{ '\0', NULL, "real_rip" },
 	{ '\0', NULL, "real_lport" },
 	{ '\0', NULL, "real_rport" },
+	{ '\0', NULL, "domain_first" },
+	{ '\0', NULL, "domain_last" },
+	/* be sure to update AUTH_REQUEST_VAR_TAB_COUNT */
 	{ '\0', NULL, NULL }
 };
 
@@ -1963,6 +2019,14 @@ auth_request_get_var_expand_table_full(const struct auth_request *auth_request,
 		tab[20].value = net_ip2addr(&auth_request->real_remote_ip);
 	tab[21].value = dec2str(auth_request->real_local_port);
 	tab[22].value = dec2str(auth_request->real_remote_port);
+	tab[23].value = strchr(auth_request->user, '@');
+	if (tab[23].value != NULL) {
+		tab[23].value = escape_func(t_strcut(tab[23].value+1, '@'),
+					    auth_request);
+	}
+	tab[24].value = strrchr(auth_request->user, '@');
+	if (tab[24].value != NULL)
+		tab[24].value = escape_func(tab[24].value+1, auth_request);
 	return ret_tab;
 }
 
@@ -1993,7 +2057,7 @@ static void get_log_prefix(string_t *str, struct auth_request *auth_request,
 	}
 
 	ip = net_ip2addr(&auth_request->remote_ip);
-	if (ip != NULL) {
+	if (ip[0] != '\0') {
 		str_append_c(str, ',');
 		str_append(str, ip);
 	}

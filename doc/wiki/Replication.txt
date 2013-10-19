@@ -21,7 +21,8 @@ replication:
 doveadm user '*'
 ---%<-------------------------------------------------------------------------
 
-Enable the replication plugin:
+Enable the replication plugin globally (most likely you'll need to do this in
+10-mail.conf):
 
 ---%<-------------------------------------------------------------------------
 mail_plugins = $mail_plugins notify replication
@@ -162,4 +163,19 @@ ulimit -c unlimited # for debugging any crashes
 /usr/local/bin/doveadm dsync-server -u $username
 ---%<-------------------------------------------------------------------------
 
-(This file was created from the wiki on 2013-05-19 04:42)
+Notes
+-----
+
+Random things to remember:
+
+ * The replicas can't share the same quota database, since both will always
+   update it
+ * With mdbox format "doveadm purge" won't be replicated
+ * "doveadm force-resync", "doveadm quota recalc" and other similar fixing
+   commands don't get replicated
+ * The servers must have different hostnames or the locking doesn't work and
+   can cause replication problems.
+    * v2.2.6+: If you're having trouble, verify that 'dovecot --hostdomain'
+      returns different values for the servers.
+
+(This file was created from the wiki on 2013-09-25 04:42)

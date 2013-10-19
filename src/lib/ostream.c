@@ -25,6 +25,24 @@ int o_stream_get_fd(struct ostream *stream)
 	return stream->real_stream->fd;
 }
 
+const char *o_stream_get_error(struct ostream *stream)
+{
+	struct ostream *s;
+
+	/* we'll only return errors for streams that have stream_errno set.
+	   we might be returning unintended error otherwise. */
+	if (stream->stream_errno == 0)
+		return "<no error>";
+
+	for (s = stream; s != NULL; s = s->real_stream->parent) {
+		if (s->stream_errno == 0)
+			break;
+		if (s->real_stream->iostream.error != NULL)
+			return s->real_stream->iostream.error;
+	}
+	return strerror(stream->stream_errno);
+}
+
 static void o_stream_close_full(struct ostream *stream, bool close_parents)
 {
 	io_stream_close(&stream->real_stream->iostream, close_parents);
@@ -107,6 +125,12 @@ void o_stream_uncork(struct ostream *stream)
 	_stream->cork(_stream, FALSE);
 }
 
+static void o_stream_clear_error(struct ostream *stream)
+{
+	stream->stream_errno = 0;
+	i_free_and_null(stream->real_stream->iostream.error);
+}
+
 int o_stream_flush(struct ostream *stream)
 {
 	struct ostream_private *_stream = stream->real_stream;
@@ -117,7 +141,7 @@ int o_stream_flush(struct ostream *stream)
 		return -1;
 	}
 
-	stream->stream_errno = 0;
+	o_stream_clear_error(stream);
 	if (unlikely((ret = _stream->flush(_stream)) < 0)) {
 		i_assert(stream->stream_errno != 0);
 		stream->last_failed_errno = stream->stream_errno;
@@ -160,7 +184,7 @@ int o_stream_seek(struct ostream *stream, uoff_t offset)
 		return -1;
 	}
 
-	stream->stream_errno = 0;
+	o_stream_clear_error(stream);
 	if (unlikely(_stream->seek(_stream, offset) < 0)) {
 		i_assert(stream->stream_errno != 0);
 		stream->last_failed_errno = stream->stream_errno;
@@ -194,7 +218,7 @@ ssize_t o_stream_sendv(struct ostream *stream, const struct const_iovec *iov,
 		return -1;
 	}
 
-	stream->stream_errno = 0;
+	o_stream_clear_error(stream);
 	for (i = 0, total_size = 0; i < iov_count; i++)
 		total_size += iov[i].iov_len;
 	if (total_size == 0)
@@ -283,7 +307,7 @@ off_t o_stream_send_istream(struct ostream *outstream,
 		return -1;
 	}
 
-	outstream->stream_errno = 0;
+	o_stream_clear_error(outstream);
 	ret = _outstream->send_istream(_outstream, instream);
 	if (unlikely(ret < 0)) {
 		i_assert(outstream->stream_errno != 0);
@@ -303,6 +327,7 @@ int o_stream_pwrite(struct ostream *stream, const void *data, size_t size,
 		return -1;
 	}
 
+	o_stream_clear_error(stream);
 	ret = stream->real_stream->write_at(stream->real_stream,
 					    data, size, offset);
 	if (unlikely(ret < 0)) {
@@ -532,8 +557,23 @@ struct ostream *o_stream_create_error(int stream_errno)
 	stream = i_new(struct ostream_private, 1);
 	stream->ostream.closed = TRUE;
 	stream->ostream.stream_errno = stream_errno;
+	stream->ostream.last_failed_errno = stream_errno;
 
 	output = o_stream_create(stream, NULL, -1);
+	o_stream_set_no_error_handling(output, TRUE);
 	o_stream_set_name(output, "(error)");
+	return output;
+}
+
+struct ostream *
+o_stream_create_error_str(int stream_errno, const char *fmt, ...)
+{
+	struct ostream *output;
+	va_list args;
+
+	va_start(args, fmt);
+	output = o_stream_create_error(stream_errno);
+	io_stream_set_verror(&output->real_stream->iostream, fmt, args);
+	va_end(args);
 	return output;
 }

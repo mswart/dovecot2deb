@@ -13,6 +13,7 @@
 #include "access-lookup.h"
 #include "anvil-client.h"
 #include "auth-client.h"
+#include "dsasl-client.h"
 #include "master-service-ssl-settings.h"
 #include "ssl-proxy.h"
 #include "login-proxy.h"
@@ -63,11 +64,14 @@ void login_refresh_proctitle(void)
 	} else if (clients_get_count() > 1 || client == NULL) {
 		process_title_set(t_strdup_printf("[%u connections (%u TLS)]",
 			clients_get_count(), ssl_proxy_get_count()));
-	} else if ((addr = net_ip2addr(&client->ip)) != NULL) {
-		process_title_set(t_strdup_printf(client->tls ?
-						  "[%s TLS]" : "[%s]", addr));
 	} else {
-		process_title_set(client->tls ? "[TLS]" : "");
+		addr = net_ip2addr(&client->ip);
+		if (addr[0] != '\0') {
+			process_title_set(t_strdup_printf(client->tls ?
+				"[%s TLS]" : "[%s]", addr));
+		} else {
+			process_title_set(client->tls ? "[TLS]" : "");
+		}
 	}
 }
 
@@ -281,6 +285,7 @@ static void main_preinit(bool allow_core_dumps)
 	/* Initialize SSL proxy so it can read certificate and private
 	   key file. */
 	ssl_proxy_init();
+	dsasl_clients_init();
 
 	/* set the number of fds we want to use. it may get increased or
 	   decreased. leave a couple of extra fds for auth sockets and such.
@@ -356,6 +361,7 @@ static void main_deinit(void)
 		anvil_client_deinit(&anvil);
 	if (auth_client_to != NULL)
 		timeout_remove(&auth_client_to);
+	dsasl_clients_deinit();
 	login_settings_deinit();
 }
 

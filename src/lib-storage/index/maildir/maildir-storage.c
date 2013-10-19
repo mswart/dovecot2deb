@@ -351,7 +351,14 @@ static int maildir_mailbox_open(struct mailbox *box)
 	if (ret < 0)
 		return -1;
 
-	/* tmp/ directory doesn't exist. does the maildir? */
+	/* tmp/ directory doesn't exist. does the maildir? autocreate missing
+	   dirs only with Maildir++ and imapdir layouts. */
+	if (strcmp(box->list->name, MAILBOX_LIST_NAME_MAILDIRPLUSPLUS) != 0 &&
+	    strcmp(box->list->name, MAILBOX_LIST_NAME_IMAPDIR) != 0) {
+		mail_storage_set_error(box->storage, MAIL_ERROR_NOTFOUND,
+			T_MAIL_ERR_MAILBOX_NOT_FOUND(box->vname));
+		return -1;
+	}
 	root_dir = mailbox_list_get_root_forced(box->list,
 						MAILBOX_LIST_PATH_TYPE_MAILBOX);
 	if (strcmp(box_path, root_dir) == 0) {
@@ -509,6 +516,7 @@ maildir_mailbox_create(struct mailbox *box, const struct mailbox_update *update,
 
 	if ((ret = index_storage_mailbox_create(box, directory)) <= 0)
 		return ret;
+	ret = 0;
 	/* the maildir is created now. finish the creation as best as we can */
 	if (create_maildir_subdirs(box, FALSE) < 0)
 		ret = -1;
@@ -658,7 +666,8 @@ struct mail_storage maildir_storage = {
 	.name = MAILDIR_STORAGE_NAME,
 	.class_flags = MAIL_STORAGE_CLASS_FLAG_FILE_PER_MSG |
 		MAIL_STORAGE_CLASS_FLAG_HAVE_MAIL_GUIDS |
-		MAIL_STORAGE_CLASS_FLAG_HAVE_MAIL_SAVE_GUIDS,
+		MAIL_STORAGE_CLASS_FLAG_HAVE_MAIL_SAVE_GUIDS |
+		MAIL_STORAGE_CLASS_FLAG_BINARY_DATA,
 
 	.v = {
                 maildir_get_setting_parser_info,

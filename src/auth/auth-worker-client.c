@@ -19,6 +19,7 @@
 #define OUTBUF_THROTTLE_SIZE (1024*10)
 
 #define CLIENT_STATE_HANDSHAKE "handshaking"
+#define CLIENT_STATE_ITER "iterating users"
 #define CLIENT_STATE_IDLE "idling"
 #define CLIENT_STATE_STOP "waiting for shutdown"
 
@@ -109,6 +110,21 @@ static void auth_worker_send_reply(struct auth_worker_client *client,
 	o_stream_nsend(client->output, str_data(str), str_len(str));
 }
 
+static void
+reply_append_extra_fields(string_t *str, struct auth_request *request)
+{
+	if (!auth_fields_is_empty(request->extra_fields)) {
+		str_append_c(str, '\t');
+		auth_fields_append(request->extra_fields, str, 0, 0);
+	}
+	if (request->userdb_reply != NULL &&
+	    auth_fields_is_empty(request->userdb_reply)) {
+		/* all userdb_* fields had NULL values. we'll still
+		   need to tell this to the master */
+		str_append(str, "\tuserdb_"AUTH_REQUEST_USER_KEY_IGNORE);
+	}
+}
+
 static void verify_plain_callback(enum passdb_result result,
 				  struct auth_request *request)
 {
@@ -131,10 +147,7 @@ static void verify_plain_callback(enum passdb_result result,
 		str_append_c(str, '\t');
 		if (request->passdb_password != NULL)
 			str_append_tabescaped(str, request->passdb_password);
-		if (!auth_fields_is_empty(request->extra_fields)) {
-			str_append_c(str, '\t');
-			auth_fields_append(request->extra_fields, str, 0, 0);
-		}
+		reply_append_extra_fields(str, request);
 	}
 	str_append_c(str, '\n');
 	auth_worker_send_reply(client, str);
@@ -215,11 +228,7 @@ lookup_credentials_callback(enum passdb_result result,
 		str_append_tabescaped(str, request->user);
 		str_printfa(str, "\t{%s.b64}", request->credentials_scheme);
 		base64_encode(credentials, size, str);
-
-		if (!auth_fields_is_empty(request->extra_fields)) {
-			str_append_c(str, '\t');
-			auth_fields_append(request->extra_fields, str, 0, 0);
-		}
+		reply_append_extra_fields(str, request);
 	}
 	str_append_c(str, '\n');
 	auth_worker_send_reply(client, str);
@@ -405,6 +414,27 @@ auth_worker_handle_user(struct auth_worker_client *client,
 	return TRUE;
 }
 
+static void
+auth_worker_client_idle_kill(struct auth_worker_client *client ATTR_UNUSED)
+{
+	auth_worker_client_send_shutdown();
+}
+
+static void
+auth_worker_client_set_idle_timeout(struct auth_worker_client *client)
+{
+	unsigned int idle_kill_secs;
+
+	i_assert(client->to_idle == NULL);
+
+	idle_kill_secs = master_service_get_idle_kill_secs(master_service);
+	if (idle_kill_secs > 0) {
+		client->to_idle = timeout_add(idle_kill_secs * 1000,
+					      auth_worker_client_idle_kill,
+					      client);
+	}
+}
+
 static void list_iter_deinit(struct auth_worker_list_context *ctx)
 {
 	struct auth_worker_client *client = ctx->client;
@@ -421,10 +451,14 @@ static void list_iter_deinit(struct auth_worker_list_context *ctx)
 	auth_worker_send_reply(client, str);
 
 	client->io = io_add(client->fd, IO_READ, auth_worker_input, client);
+	auth_worker_client_set_idle_timeout(client);
+
 	o_stream_set_flush_callback(client->output, auth_worker_output, client);
 	auth_request_unref(&ctx->auth_request);
 	auth_worker_client_unref(&client);
 	i_free(ctx);
+
+	auth_worker_refresh_proctitle(CLIENT_STATE_IDLE);
 }
 
 static void list_iter_callback(const char *user, void *context)
@@ -440,6 +474,8 @@ static void list_iter_callback(const char *user, void *context)
 		return;
 	}
 
+	if (!ctx->sending)
+		o_stream_cork(ctx->client->output);
 	T_BEGIN {
 		str = t_str_new(128);
 		str_printfa(str, "%u\t*\t%s\n", ctx->auth_request->id, user);
@@ -455,13 +491,24 @@ static void list_iter_callback(const char *user, void *context)
 	do {
 		ctx->sending = TRUE;
 		ctx->sent = FALSE;
-		ctx->auth_request->userdb->userdb->iface->
-			iterate_next(ctx->iter);
+		T_BEGIN {
+			ctx->auth_request->userdb->userdb->iface->
+				iterate_next(ctx->iter);
+		} T_END;
+		if (o_stream_get_buffer_used_size(ctx->client->output) > OUTBUF_THROTTLE_SIZE) {
+			if (o_stream_flush(ctx->client->output) < 0) {
+				ctx->done = TRUE;
+				break;
+			}
+		}
 	} while (ctx->sent &&
-		 o_stream_get_buffer_used_size(ctx->client->output) == 0);
+		 o_stream_get_buffer_used_size(ctx->client->output) <= OUTBUF_THROTTLE_SIZE);
+	o_stream_uncork(ctx->client->output);
 	ctx->sending = FALSE;
 	if (ctx->done)
 		list_iter_deinit(ctx);
+	else
+		o_stream_set_flush_pending(ctx->client->output, TRUE);
 }
 
 static int auth_worker_list_output(struct auth_worker_list_context *ctx)
@@ -472,10 +519,10 @@ static int auth_worker_list_output(struct auth_worker_list_context *ctx)
 		list_iter_deinit(ctx);
 		return 1;
 	}
-	if (ret > 0) {
+	if (ret > 0) T_BEGIN {
 		ctx->auth_request->userdb->userdb->iface->
 			iterate_next(ctx->iter);
-	}
+	} T_END;
 	return 1;
 }
 
@@ -511,6 +558,9 @@ auth_worker_handle_list(struct auth_worker_client *client,
 	}
 
 	io_remove(&ctx->client->io);
+	if (ctx->client->to_idle != NULL)
+		timeout_remove(&ctx->client->to_idle);
+
 	o_stream_set_flush_callback(ctx->client->output,
 				    auth_worker_list_output, ctx);
 	ctx->iter = ctx->auth_request->userdb->userdb->iface->
@@ -548,7 +598,8 @@ auth_worker_handle_line(struct auth_worker_client *client, const char *line)
 		i_error("BUG: Auth-worker received unknown command: %s",
 			args[1]);
 	}
-	auth_worker_refresh_proctitle(CLIENT_STATE_IDLE);
+	if (client->io != NULL)
+		auth_worker_refresh_proctitle(CLIENT_STATE_IDLE);
         return ret;
 }
 
@@ -653,17 +704,10 @@ static int auth_worker_output(struct auth_worker_client *client)
 	return 1;
 }
 
-static void
-auth_worker_client_idle_kill(struct auth_worker_client *client ATTR_UNUSED)
-{
-	auth_worker_client_send_shutdown();
-}
-
 struct auth_worker_client *
 auth_worker_client_create(struct auth *auth, int fd)
 {
         struct auth_worker_client *client;
-	unsigned int idle_kill_secs;
 
 	client = i_new(struct auth_worker_client, 1);
 	client->refcount = 1;
@@ -676,14 +720,8 @@ auth_worker_client_create(struct auth *auth, int fd)
 	o_stream_set_no_error_handling(client->output, TRUE);
 	o_stream_set_flush_callback(client->output, auth_worker_output, client);
 	client->io = io_add(fd, IO_READ, auth_worker_input, client);
+	auth_worker_client_set_idle_timeout(client);
 	auth_worker_refresh_proctitle(CLIENT_STATE_HANDSHAKE);
-
-	idle_kill_secs = master_service_get_idle_kill_secs(master_service);
-	if (idle_kill_secs > 0) {
-		client->to_idle = timeout_add(idle_kill_secs * 1000,
-					      auth_worker_client_idle_kill,
-					      client);
-	}
 
 	auth_worker_client = client;
 	if (auth_worker_client_error)
@@ -749,7 +787,8 @@ void auth_worker_client_send_success(void)
 		o_stream_nsend_str(auth_worker_client->output, "SUCCESS\n");
 		auth_worker_client->error_sent = FALSE;
 	}
-	auth_worker_refresh_proctitle(CLIENT_STATE_IDLE);
+	if (auth_worker_client->io != NULL)
+		auth_worker_refresh_proctitle(CLIENT_STATE_IDLE);
 }
 
 void auth_worker_client_send_shutdown(void)

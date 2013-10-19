@@ -15,7 +15,8 @@ enum master_service_flags {
 	   _FLAG_STANDALONE is set, logging is done to stderr. */
 	MASTER_SERVICE_FLAG_DONT_LOG_TO_STDERR	= 0x04,
 	/* Service is going to do multiple configuration lookups,
-	   keep the connection to config service open. */
+	   keep the connection to config service open. Also opens the config
+	   socket before dropping privileges. */
 	MASTER_SERVICE_FLAG_KEEP_CONFIG_OPEN	= 0x08,
 	/* Don't read settings, but use whatever is in environment */
 	MASTER_SERVICE_FLAG_NO_CONFIG_SETTINGS	= 0x10,
@@ -66,7 +67,10 @@ int master_getopt(struct master_service *service);
 bool master_service_parse_option(struct master_service *service,
 				 int opt, const char *arg);
 /* Finish service initialization. The caller should drop privileges
-   before calling this. */
+   before calling this. This also notifies the master that the service was
+   successfully started and there shouldn't be any service throttling even if
+   it crashes afterwards, so this should be called after all of the
+   initialization code is finished. */
 void master_service_init_finish(struct master_service *service);
 
 /* Clean environment from everything except the ones listed in
