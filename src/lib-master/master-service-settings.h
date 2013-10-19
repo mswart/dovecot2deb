@@ -52,10 +52,17 @@ struct master_service_settings_output {
 	   local/remote ip/host */
 	unsigned int used_local:1;
 	unsigned int used_remote:1;
+	/* Config couldn't be read because we don't have enough permissions.
+	   The process probably should be restarted and the settings read
+	   before dropping privileges. */
+	unsigned int permission_denied:1;
 };
 
 extern const struct setting_parser_info master_service_setting_parser_info;
 
+/* Try to open the config socket if it's going to be needed later by
+   master_service_settings_read*() */
+void master_service_config_socket_try_open(struct master_service *service);
 int master_service_settings_read(struct master_service *service,
 				 const struct master_service_settings_input *input,
 				 struct master_service_settings_output *output_r,

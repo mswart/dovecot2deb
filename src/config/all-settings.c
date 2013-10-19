@@ -80,6 +80,7 @@ struct mailbox_settings {
 	const char *name;
 	const char *autocreate;
 	const char *special_use;
+	const char *driver;
 };
 struct mail_user_settings {
 	const char *base_dir;
@@ -210,6 +211,7 @@ struct inet_listener_settings {
 	const char *address;
 	unsigned int port;
 	bool ssl;
+	bool reuse_port;
 };
 ARRAY_DEFINE_TYPE(inet_listener_settings, struct inet_listener_settings *);
 struct service_settings {
@@ -263,6 +265,7 @@ struct master_service_ssl_settings {
 	bool ssl_verify_client_cert;
 	bool ssl_require_crl;
 	bool verbose_ssl;
+	bool ssl_prefer_server_ciphers;
 };
 /* ../../src/lib-master/master-service-settings.h */
 extern const struct setting_parser_info master_service_setting_parser_info;
@@ -633,6 +636,7 @@ static const struct setting_define mailbox_setting_defines[] = {
 	DEF(SET_STR, name),
 	{ SET_ENUM, "auto", offsetof(struct mailbox_settings, autocreate), NULL } ,
 	DEF(SET_STR, special_use),
+	DEF(SET_STR, driver),
 
 	SETTING_DEFINE_LIST_END
 };
@@ -641,7 +645,8 @@ const struct mailbox_settings mailbox_default_settings = {
 	.autocreate = MAILBOX_SET_AUTO_NO":"
 		MAILBOX_SET_AUTO_CREATE":"
 		MAILBOX_SET_AUTO_SUBSCRIBE,
-	.special_use = ""
+	.special_use = "",
+	.driver = ""
 };
 const struct setting_parser_info mailbox_setting_parser_info = {
 	.defines = mailbox_setting_defines,
@@ -990,7 +995,7 @@ static const struct imapc_settings imapc_default_settings = {
 	.imapc_host = "",
 	.imapc_port = 143,
 
-	.imapc_user = "%u",
+	.imapc_user = "",
 	.imapc_master_user = "",
 	.imapc_password = "",
 
@@ -1053,8 +1058,8 @@ static const struct setting_parser_info mdbox_setting_parser_info = {
 static const struct setting_define lda_setting_defines[] = {
 	DEF(SET_STR_VARS, postmaster_address),
 	DEF(SET_STR, hostname),
-	DEF(SET_STR, submission_host),
-	DEF(SET_STR, sendmail_path),
+	DEF(SET_STR_VARS, submission_host),
+	DEF(SET_STR_VARS, sendmail_path),
 	DEF(SET_STR, rejection_subject),
 	DEF(SET_STR, rejection_reason),
 	DEF(SET_STR, deliver_log_format),
@@ -1833,8 +1838,8 @@ const struct setting_parser_info pop3_setting_parser_info = {
 /* ../../src/pop3-login/pop3-login-settings.c */
 /* <settings checks> */
 static struct inet_listener_settings pop3_login_inet_listeners_array[] = {
-	{ "pop3", "", 110, FALSE },
-	{ "pop3s", "", 995, TRUE }
+	{ .name = "pop3", .address = "", .port = 110 },
+	{ .name = "pop3s", .address = "", .port = 995, .ssl = TRUE }
 };
 static struct inet_listener_settings *pop3_login_inet_listeners[] = {
 	&pop3_login_inet_listeners_array[0],
@@ -2298,6 +2303,7 @@ static const struct setting_define inet_listener_setting_defines[] = {
 	DEF(SET_STR, address),
 	DEF(SET_UINT, port),
 	DEF(SET_BOOL, ssl),
+	DEF(SET_BOOL, reuse_port),
 
 	SETTING_DEFINE_LIST_END
 };
@@ -2305,7 +2311,8 @@ static const struct inet_listener_settings inet_listener_default_settings = {
 	.name = "",
 	.address = "",
 	.port = 0,
-	.ssl = FALSE
+	.ssl = FALSE,
+	.reuse_port = FALSE
 };
 static const struct setting_parser_info inet_listener_setting_parser_info = {
 	.defines = inet_listener_setting_defines,
@@ -3123,8 +3130,8 @@ const struct setting_parser_info *imap_urlauth_login_setting_roots[] = {
 /* ../../src/imap-login/imap-login-settings.c */
 /* <settings checks> */
 static struct inet_listener_settings imap_login_inet_listeners_array[] = {
-	{ "imap", "", 143, FALSE },
-	{ "imaps", "", 993, TRUE }
+	{ .name = "imap", .address = "", .port = 143 },
+	{ .name = "imaps", .address = "", .port = 993, .ssl = TRUE }
 };
 static struct inet_listener_settings *imap_login_inet_listeners[] = {
 	&imap_login_inet_listeners_array[0],
@@ -3342,6 +3349,8 @@ struct service_settings dns_client_service_settings = {
 };
 /* ../../src/director/director-settings.c */
 /* <settings checks> */
+static bool director_settings_verify(void *_set, pool_t pool, const char **error_r);
+
 static struct file_listener_settings director_unix_listeners_array[] = {
 	{ "login/director", 0, "", "" },
 	{ "director-admin", 0600, "", "" }
@@ -3364,6 +3373,19 @@ static buffer_t director_fifo_listeners_buf = {
 	director_fifo_listeners,
 	sizeof(director_fifo_listeners), { 0, }
 };
+/* </settings checks> */
+/* <settings checks> */
+static bool
+director_settings_verify(void *_set, pool_t pool ATTR_UNUSED, const char **error_r)
+{
+	struct director_settings *set = _set;
+
+	if (set->director_user_expire < 10) {
+		*error_r = "director_user_expire is too low";
+		return FALSE;
+	}
+	return TRUE;
+}
 /* </settings checks> */
 struct service_settings director_service_settings = {
 	.name = "director",
@@ -3424,7 +3446,9 @@ const struct setting_parser_info director_setting_parser_info = {
 	.type_offset = (size_t)-1,
 	.struct_size = sizeof(struct director_settings),
 
-	.parent_offset = (size_t)-1
+	.parent_offset = (size_t)-1,
+
+	.check_func = director_settings_verify
 };
 /* ../../src/dict/dict-settings.c */
 /* <settings checks> */
@@ -3533,7 +3557,7 @@ static struct file_listener_settings auth_unix_listeners_array[] = {
 	{ "login/login", 0666, "", "" },
 	{ "token-login/tokenlogin", 0666, "", "" },
 	{ "auth-login", 0600, "$default_internal_user", "" },
-	{ "auth-client", 0600, "", "" },
+	{ "auth-client", 0600, "$default_internal_user", "" },
 	{ "auth-userdb", 0666, "$default_internal_user", "" },
 	{ "auth-master", 0600, "", "" }
 };
@@ -3964,32 +3988,32 @@ buffer_t config_all_services_buf = {
 const struct setting_parser_info *all_default_roots[] = {
 	&master_service_setting_parser_info,
 	&master_service_ssl_setting_parser_info,
-	&dict_setting_parser_info, 
+	&doveadm_setting_parser_info, 
+	&mdbox_setting_parser_info, 
+	&maildir_setting_parser_info, 
 	&master_setting_parser_info, 
-	&pop3_login_setting_parser_info, 
-	&pop3_setting_parser_info, 
 	&imap_urlauth_login_setting_parser_info, 
+	&dict_setting_parser_info, 
+	&ssl_params_setting_parser_info, 
 	&replicator_setting_parser_info, 
-	&lda_setting_parser_info, 
+	&pop3_login_setting_parser_info, 
+	&stats_setting_parser_info, 
+	&imap_urlauth_worker_setting_parser_info, 
+	&mbox_setting_parser_info, 
+	&login_setting_parser_info, 
+	&lmtp_setting_parser_info, 
+	&imap_login_setting_parser_info, 
+	&imap_setting_parser_info, 
 	&imap_urlauth_setting_parser_info, 
 	&aggregator_setting_parser_info, 
-	&ssl_params_setting_parser_info, 
-	&mdbox_setting_parser_info, 
-	&doveadm_setting_parser_info, 
-	&mail_user_setting_parser_info, 
-	&imap_login_setting_parser_info, 
+	&lda_setting_parser_info, 
+	&pop3_setting_parser_info, 
 	&mail_storage_setting_parser_info, 
-	&director_setting_parser_info, 
-	&stats_setting_parser_info, 
 	&imapc_setting_parser_info, 
-	&maildir_setting_parser_info, 
-	&lmtp_setting_parser_info, 
-	&imap_urlauth_worker_setting_parser_info, 
-	&login_setting_parser_info, 
+	&mail_user_setting_parser_info, 
 	&auth_setting_parser_info, 
-	&mbox_setting_parser_info, 
+	&director_setting_parser_info, 
 	&pop3c_setting_parser_info, 
-	&imap_setting_parser_info, 
 	NULL
 };
 const struct setting_parser_info *const *all_roots = all_default_roots;

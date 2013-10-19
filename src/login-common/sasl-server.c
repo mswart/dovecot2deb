@@ -13,6 +13,7 @@
 #include "auth-client.h"
 #include "ssl-proxy.h"
 #include "master-service.h"
+#include "master-service-ssl-settings.h"
 #include "master-interface.h"
 #include "master-auth.h"
 #include "client-common.h"
@@ -38,7 +39,8 @@ sasl_server_get_advertised_mechs(struct client *client, unsigned int *count_r)
 	unsigned int i, j, count;
 
 	mech = auth_client_get_available_mechs(auth_client, &count);
-	if (count == 0) {
+	if (count == 0 || (!client->secured &&
+			   strcmp(client->ssl_set->ssl, "required") == 0)) {
 		*count_r = 0;
 		return NULL;
 	}
@@ -237,7 +239,11 @@ authenticate_callback(struct auth_client_request *request,
 		for (i = 0; args[i] != NULL; i++) {
 			if (strncmp(args[i], "user=", 5) == 0) {
 				i_free(client->virtual_user);
+				i_free_and_null(client->virtual_user_orig);
 				client->virtual_user = i_strdup(args[i] + 5);
+			} else if (strncmp(args[i], "original_user=", 14) == 0) {
+				i_free(client->virtual_user_orig);
+				client->virtual_user_orig = i_strdup(args[i] + 14);
 			} else if (strcmp(args[i], "nologin") == 0 ||
 				   strcmp(args[i], "proxy") == 0) {
 				/* user can't login */
@@ -269,8 +275,13 @@ authenticate_callback(struct auth_client_request *request,
 			for (i = 0; args[i] != NULL; i++) {
 				if (strncmp(args[i], "user=", 5) == 0) {
 					i_free(client->virtual_user);
+					i_free_and_null(client->virtual_user_orig);
 					client->virtual_user =
 						i_strdup(args[i] + 5);
+				} else if (strncmp(args[i], "original_user=", 14) == 0) {
+					i_free(client->virtual_user_orig);
+					client->virtual_user_orig =
+						i_strdup(args[i] + 14);
 				}
 			}
 		}

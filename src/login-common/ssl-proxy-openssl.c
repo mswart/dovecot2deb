@@ -29,6 +29,10 @@
 #include <openssl/err.h>
 #include <openssl/rand.h>
 
+#if !defined(OPENSSL_NO_ECDH) && OPENSSL_VERSION_NUMBER >= 0x10000000L
+#  define HAVE_ECDH
+#endif
+
 /* Check every 30 minutes if parameters file has been updated */
 #define SSL_PARAMFILE_CHECK_INTERVAL (60*30)
 
@@ -95,6 +99,7 @@ struct ssl_server_context {
 	const char *cipher_list;
 	const char *protocols;
 	bool verify_client_cert;
+	bool prefer_server_ciphers;
 };
 
 static int extdata_index;
@@ -118,6 +123,12 @@ static struct ssl_server_context *
 ssl_server_context_init(const struct login_settings *login_set,
 			const struct master_service_ssl_settings *ssl_set);
 static void ssl_server_context_deinit(struct ssl_server_context **_ctx);
+
+static void ssl_proxy_ctx_set_crypto_params(SSL_CTX *ssl_ctx,
+                                            const struct master_service_ssl_settings *set);
+#if defined(HAVE_ECDH) && OPENSSL_VERSION_NUMBER < 0x10002000L
+static int ssl_proxy_ctx_get_pkey_ec_curve_name(const struct master_service_ssl_settings *set);
+#endif
 
 static unsigned int ssl_server_context_hash(const struct ssl_server_context *ctx)
 {
@@ -624,6 +635,7 @@ ssl_server_context_get(const struct login_settings *login_set,
 	lookup_ctx.verify_client_cert = set->ssl_verify_client_cert ||
 		login_set->auth_ssl_require_client_cert ||
 		login_set->auth_ssl_username_from_cert;
+	lookup_ctx.prefer_server_ciphers = set->ssl_prefer_server_ciphers;
 
 	ctx = hash_table_lookup(ssl_servers, &lookup_ctx);
 	if (ctx == NULL)
@@ -846,10 +858,19 @@ static void ssl_info_callback(const SSL *ssl, int where, int ret)
 		return;
 
 	if ((where & SSL_CB_ALERT) != 0) {
-		i_warning("SSL alert: where=0x%x, ret=%d: %s %s [%s]",
-			  where, ret, SSL_alert_type_string_long(ret),
-			  SSL_alert_desc_string_long(ret),
-			  net_ip2addr(&proxy->ip));
+		switch (ret & 0xff) {
+		case SSL_AD_CLOSE_NOTIFY:
+			i_debug("SSL alert: %s [%s]",
+				SSL_alert_desc_string_long(ret),
+				net_ip2addr(&proxy->ip));
+			break;
+		default:
+			i_warning("SSL alert: where=0x%x, ret=%d: %s %s [%s]",
+				  where, ret, SSL_alert_type_string_long(ret),
+				  SSL_alert_desc_string_long(ret),
+				  net_ip2addr(&proxy->ip));
+			break;
+		}
 	} else if (ret == 0) {
 		i_warning("SSL failed: where=0x%x: %s [%s]",
 			  where, SSL_state_string_long(ssl),
@@ -993,11 +1014,58 @@ ssl_proxy_ctx_init(SSL_CTX *ssl_ctx, const struct master_service_ssl_settings *s
 		store = SSL_CTX_get_cert_store(ssl_ctx);
 		load_ca(store, set->ssl_ca, load_xnames ? &xnames : NULL);
 	}
+	ssl_proxy_ctx_set_crypto_params(ssl_ctx, set);
 	SSL_CTX_set_info_callback(ssl_ctx, ssl_info_callback);
+	return xnames;
+}
+
+static void
+ssl_proxy_ctx_set_crypto_params(SSL_CTX *ssl_ctx,
+	const struct master_service_ssl_settings *set ATTR_UNUSED)
+{
+#if defined(HAVE_ECDH) && OPENSSL_VERSION_NUMBER < 0x10002000L
+	EC_KEY *ecdh;
+	int nid;
+	const char *curve_name;
+#endif
 	if (SSL_CTX_need_tmp_RSA(ssl_ctx))
 		SSL_CTX_set_tmp_rsa_callback(ssl_ctx, ssl_gen_rsa_key);
 	SSL_CTX_set_tmp_dh_callback(ssl_ctx, ssl_tmp_dh_callback);
-	return xnames;
+#ifdef HAVE_ECDH
+	/* In the non-recommended situation where ECDH cipher suites are being
+	   used instead of ECDHE, do not reuse the same ECDH key pair for
+	   different sessions. This option improves forward secrecy. */
+	SSL_CTX_set_options(ssl_ctx, SSL_OP_SINGLE_ECDH_USE);
+#if OPENSSL_VERSION_NUMBER >= 0x10002000L
+	/* OpenSSL >= 1.0.2 automatically handles ECDH temporary key parameter
+	   selection. */
+	SSL_CTX_set_ecdh_auto(ssl_ctx, 1);
+#else
+	/* For OpenSSL < 1.0.2, ECDH temporary key parameter selection must be
+	   performed manually. Attempt to select the same curve as that used
+	   in the server's private EC key file. Otherwise fall back to the
+	   NIST P-384 (secp384r1) curve to be compliant with RFC 6460 when
+	   AES-256 TLS cipher suites are in use. This fall back option does
+	   however make Dovecot non-compliant with RFC 6460 which requires
+	   curve NIST P-256 (prime256v1) be used when AES-128 TLS cipher
+	   suites are in use. At least the non-compliance is in the form of
+	   providing too much security rather than too little. */
+	nid = ssl_proxy_ctx_get_pkey_ec_curve_name(set);
+	ecdh = EC_KEY_new_by_curve_name(nid);
+	if (ecdh == NULL) {
+		/* Fall back option */
+		nid = NID_secp384r1;
+		ecdh = EC_KEY_new_by_curve_name(nid);
+	}
+	if ((curve_name = OBJ_nid2sn(nid)) != NULL && set->verbose_ssl)
+		i_debug("SSL: elliptic curve %s will be used for ECDH and"
+		        " ECDHE key exchanges", curve_name);
+	if (ecdh != NULL) {
+		SSL_CTX_set_tmp_ecdh(ssl_ctx, ecdh);
+		EC_KEY_free(ecdh);
+	}
+#endif
+#endif
 }
 
 static void
@@ -1082,6 +1150,28 @@ ssl_proxy_ctx_use_key(SSL_CTX *ctx,
 		i_fatal("Can't load private ssl_key: %s", ssl_key_load_error());
 	EVP_PKEY_free(pkey);
 }
+
+#if defined(HAVE_ECDH) && OPENSSL_VERSION_NUMBER < 0x10002000L
+static int
+ssl_proxy_ctx_get_pkey_ec_curve_name(const struct master_service_ssl_settings *set)
+{
+	int nid = 0;
+	EVP_PKEY *pkey;
+	const char *password;
+	EC_KEY *eckey;
+	const EC_GROUP *ecgrp;
+
+	password = *set->ssl_key_password != '\0' ? set->ssl_key_password :
+		getenv(MASTER_SSL_KEY_PASSWORD_ENV);
+	pkey = ssl_proxy_load_key(set->ssl_key, password);
+	if (pkey != NULL &&
+	    (eckey = EVP_PKEY_get1_EC_KEY(pkey)) != NULL &&
+	    (ecgrp = EC_KEY_get0_group(eckey)) != NULL)
+		nid = EC_GROUP_get_curve_name(ecgrp);
+	EVP_PKEY_free(pkey);
+	return nid;
+}
+#endif
 
 static int
 ssl_proxy_ctx_use_certificate_chain(SSL_CTX *ctx, const char *cert)
@@ -1183,6 +1273,7 @@ ssl_server_context_init(const struct login_settings *login_set,
 	ctx->verify_client_cert = ssl_set->ssl_verify_client_cert ||
 		login_set->auth_ssl_require_client_cert ||
 		login_set->auth_ssl_username_from_cert;
+	ctx->prefer_server_ciphers = ssl_set->ssl_prefer_server_ciphers;
 
 	ctx->ctx = ssl_ctx = SSL_CTX_new(SSLv23_server_method());
 	if (ssl_ctx == NULL)
@@ -1193,6 +1284,8 @@ ssl_server_context_init(const struct login_settings *login_set,
 		i_fatal("Can't set cipher list to '%s': %s",
 			ctx->cipher_list, ssl_last_error());
 	}
+	if (ctx->prefer_server_ciphers)
+		SSL_CTX_set_options(ssl_ctx, SSL_OP_CIPHER_SERVER_PREFERENCE);
 	SSL_CTX_set_options(ssl_ctx, openssl_get_protocol_options(ctx->protocols));
 
 	if (ssl_proxy_ctx_use_certificate_chain(ctx->ctx, ctx->cert) != 1) {
@@ -1209,7 +1302,6 @@ ssl_server_context_init(const struct login_settings *login_set,
 #endif
 
 	ssl_proxy_ctx_use_key(ctx->ctx, ssl_set);
-	SSL_CTX_set_info_callback(ctx->ctx, ssl_info_callback);
 
 	if (ctx->verify_client_cert)
 		ssl_proxy_ctx_verify_client(ctx->ctx, xnames);

@@ -1,8 +1,2637 @@
+2013-09-25  Timo Sirainen  <tss@iki.fi>
+
+	* .hgsigs:
+	Added signature for changeset 1de9a494cb25
+	[0f84a1e3c4aa] [tip]
+
+	* .hgtags:
+	Added tag 2.2.6 for changeset 1de9a494cb25
+	[fa7d4f1b8fb8]
+
+	* NEWS, TODO, configure.ac:
+	Released v2.2.6.
+	[1de9a494cb25] [2.2.6]
+
+2013-09-23  Timo Sirainen  <tss@iki.fi>
+
+	* src/imap-login/imap-login-settings.c, src/lib-master/service-
+	settings.h, src/master/master-settings.c, src/master/service-
+	listen.c, src/master/service-listen.h, src/master/service-process.c,
+	src/master/service.h, src/pop3-login/pop3-login-settings.c:
+	master: Added reuse_port setting to inet_listeners, which enables
+	SO_REUSEPORT if available. After forking a new service process, a
+	new listener socket is created for each such inet_listener. Linux
+	v3.9+ added SO_REUSEPORT feature, which should distribute clients
+	more uniformly to the processes. I'm not sure if this makes any
+	difference in BSDs.
+
+	At least in Linux v3.9 there was still a bug that if the number of
+	listening processes changed, some TCP handshakes might not finish. I
+	don't see if this has already been fixed, so this is probably safe
+	to use only for services whose process count doesn't change (e.g.
+	process_min_avail is set high enough).
+	[a991a0547daa]
+
+	* src/lib/net.c, src/lib/net.h:
+	lib: Added net_listen_full() with a flag to set SO_REUSEPORT on the
+	socket if available.
+	[6a814345f16c]
+
+2013-09-22  Timo Sirainen  <tss@iki.fi>
+
+	* src/lib-storage/index/imapc/imapc-list.c:
+	imapc: Don't crash if imapc_password is missing.
+	[1a5d92b8d3d5]
+
+	* src/lib-storage/index/maildir/maildir-storage.c:
+	maildir: Autocreate missing cur/ new/ tmp/ directories only with
+	Maildir++ and imapdir. \Noselect mailboxes aren't possible with
+	those layouts, but with other layouts they are and they shouldn't
+	get automatically created just by selecting them.
+	[6942a3da740c]
+
+	* src/lib/ipwd.c:
+	i_getpw*(): Added OpenBSD workaround.
+	[801714cba91b]
+
+	* src/lib-mail/istream-attachment-connector.c:
+	istream-attachment-connector: Add base64 parameters to stream name
+	for error messages.
+	[be1d8dd8be94]
+
+	* src/lib/istream-sized.c:
+	istream-sized: Fail read() also when the stream is larger than it
+	should have been.
+	[5b1aac85eb17]
+
+	* src/lib-storage/index/mbox/mbox-storage.c, src/lib-storage/mail-
+	storage.c:
+	mbox: Fixed assert-crash due to wrong transaction_count handling.
+	This happened only when messages had been expunged by another
+	session just before saving a new message.
+	[afc8c800f6ca]
+
+	* src/lib-fs/fs-posix.c, src/lib-fs/fs-sis-queue.c, src/lib-fs/fs-
+	sis.c:
+	lib-fs: Improved fs_write_*() error messages.
+	[1cd94c4cd456]
+
+	* src/lib-storage/index/index-attachment.c:
+	lib-storage: Improve error message logging when attachment writing
+	fails
+	[38382fa18285]
+
+	* src/lib/iostream-private.h, src/lib/iostream.c, src/lib/istream.c,
+	src/lib/istream.h, src/lib/ostream.c, src/lib/ostream.h:
+	lib: Added [io]_stream_create_error_str()
+	[a919c43ab91b]
+
+	* src/lib/ostream.c:
+	ostream-errno: last_failed_errno wasn't set, causing problems with
+	some functions.
+	[52d77a3d38b5]
+
+	* src/lib-mail/istream-attachment-extractor.c, src/lib-mail/istream-
+	attachment-extractor.h, src/lib-mail/test-istream-attachment.c, src
+	/lib-storage/index/index-attachment.c:
+	Fixes and improvements to istream-attachment-extractor error
+	handling. If an attachment saving failed, the mail was still saved
+	to disk, just without the attachments.
+	[4f68ac02f46c]
+
+	* src/plugins/acl/acl-mailbox-list.c:
+	acl: Hide non-listable mailboxes from a shared subscriptions file.
+	[1cf67db75455]
+
+	* doc/example-config/conf.d/10-logging.conf:
+	example-config: Fixed login_log_format comment.
+	[d400c1a673cf]
+
+	* src/auth/auth-request.c:
+	auth: If auth_verbose_passwords is set, log the password also for
+	unknown users.
+	[1f9294fbb118]
+
+	* src/auth/auth-request.c, src/auth/auth-request.h, src/auth/db-
+	passwd-file.c, src/auth/passdb-bsdauth.c, src/auth/passdb-cache.c,
+	src/auth/passdb-dict.c, src/auth/passdb-ldap.c, src/auth/passdb-
+	pam.c, src/auth/passdb-passwd.c, src/auth/passdb-shadow.c, src/auth
+	/passdb-sql.c, src/auth/userdb-dict.c, src/auth/userdb-ldap.c,
+	src/auth/userdb-nss.c, src/auth/userdb-passwd.c, src/auth/userdb-
+	sql.c, src/auth/userdb-vpopmail.c:
+	auth: Use a common auth_request_log_unknown_user() for logging
+	"unknown user" entries.
+	[4ce8f47d20af]
+
+	* src/lib/net.c:
+	net_listen_unix(): If path is too long, return EOVERFLOW instead of
+	EINVAL.
+	[07cc79e0041d]
+
+	* src/lib/compat.h:
+	If EOVERFLOW errno isn't defined by system, fallback to ERANGE
+	instead of EINVAL. ERANGE is used by other functions as well, such
+	as getpwnam_r().
+	[d064c57a601d]
+
+	* doc/example-config/conf.d/10-ssl.conf, src/lib-master/master-
+	service-ssl-settings.c, src/lib-master/master-service-ssl-
+	settings.h, src/lib-master/master-service-ssl.c, src/lib-ssl-
+	iostream/iostream-openssl-context.c, src/lib-ssl-iostream/iostream-
+	openssl.c, src/lib-ssl-iostream/iostream-ssl.h, src/login-common
+	/ssl-proxy-openssl.c:
+	Added ssl_prefer_server_ciphers setting.
+	[897484f45a87]
+
+	* src/lib-storage/index/mbox/Makefile.am, src/lib-storage/index/mbox
+	/mbox-storage.c, src/lib-storage/index/mbox/mbox-storage.h, src/lib-
+	storage/index/mbox/mbox-sync-list-index.c, src/lib-
+	storage/index/mbox/mbox-sync-private.h:
+	mbox: Fixed mailbox_list_index=yes to work with non-Dovecot mbox
+	changes.
+	[2a209302d064]
+
+	* src/auth/auth-request-handler.c, src/login-common/client-common.c,
+	src/login-common/client-common.h, src/login-common/sasl-server.c:
+	*-login: Added %{orig_user}, %{orig_username} and %{orig_domain}
+	variables. The original username is what the client sent to server
+	before any translations.
+	[a32eea97afc1]
+
+	* src/doveadm/dsync/doveadm-dsync.c, src/doveadm/dsync/dsync-brain-
+	private.h, src/doveadm/dsync/dsync-brain.c, src/doveadm/dsync/dsync-
+	brain.h, src/doveadm/dsync/dsync-ibc-stream.c:
+	dsync: Added -P parameter to do a purge for the remote storage after
+	syncing.
+	[56be613e8ece]
+
+2013-09-21  Timo Sirainen  <tss@iki.fi>
+
+	* src/lib-storage/mailbox-list.c:
+	lib-storage: Fixed listescape when escape_char was the same as
+	namespace separator.
+	[fce84463f508]
+
+	* src/imap/cmd-select.c, src/imap/imap-commands-util.c, src/imap/imap-
+	commands-util.h:
+	imap: Send * OK [CLOSED] always before tagged SELECT reply.
+	[c019b298e0f6]
+
+	* src/lib-storage/mail-storage-service.c:
+	lib-storage: Don't create a settings cache for initial global
+	settings read. This fixes at least doveadm -A so that it doesn't
+	connect to config process for each user.
+	[2323c451150f]
+
+	* src/auth/auth-master-connection.c, src/auth/auth-worker-client.c:
+	auth: Fixed user iteration hang due to earlier stream corking
+	changes. Also fixed process title updating for auth-worker process
+	during LIST.
+	[8b3634d4c362]
+
+	* src/lib-auth/auth-master.c:
+	lib-auth: Fixed infinite looping if user listing failed because auth
+	process disconnected.
+	[09f5e8d6b8d4]
+
+	* src/lib-auth/auth-master.c:
+	lib-auth: Recent cleanup commit was actually cleaning up too much.
+	[7a4ae8d511a2]
+
+	* src/doveadm/dsync/dsync-brain-mailbox.c:
+	doveadm sync: When -1 parameter is used, ignore missing mailboxes in
+	source. Previously the syncs finished with "Mailbox changes caused a
+	desync." and exit code 2. This was especially common when the
+	destination server had new autocreated mailboxes and user logged in
+	after the first dsync.
+	[0ec0dc639a54]
+
+	* src/doveadm/dsync/dsync-brain-mailbox-tree-sync.c, src/doveadm/dsync
+	/dsync-brain-mailbox.c, src/doveadm/dsync/dsync-mailbox-import.c:
+	dsync: Added more consistency when debug logging about changes
+	during sync.
+	[2ce07adab319]
+
+	* src/doveadm/dsync/dsync-mailbox-import.c:
+	dsync: Added some more debug logging.
+	[4a969a2e9399]
+
+	* src/lib-storage/index/imapc/imapc-list.c, src/lib-storage/mail-
+	user.c, src/lib-storage/mail-user.h:
+	imapc: Don't log unnecessary errors at deinit about aborted hiearchy
+	separator lookup. The lookup is done asynchronously at startup. It
+	doesn't matter if we never get around to finishing it.
+	[cc1ee7b50ca9]
+
+2013-09-20  Timo Sirainen  <tss@iki.fi>
+
+	* src/director/director-connection.c:
+	director: Detect lost director restarts and reset last_sync_seq.
+	[c30453a58b4c]
+
+	* src/director/director-connection.c:
+	director: Make sure director restart notifications go to everyone in
+	the ring.
+	[5d43c926eb97]
+
+	* src/director/director-connection.c:
+	director: Directors weren't always marked as restarted when they
+	were.
+	[b78c705bbb8d]
+
+	* src/director/director-connection.c:
+	director: Fix & improvement to debug logging.
+	[22a3ef9a006d]
+
+	* src/director/director-connection.c:
+	director: Added more debug logging.
+	[17389ac3cb66]
+
+	* src/director/login-connection.c:
+	director: Don't assert-crash if PASS lookup fails.
+	[b135d723acf3]
+
+	* src/doveadm/dsync/doveadm-dsync.c:
+	dsync: Don't log "Mailbox changes caused a desync" warning when
+	running via doveadm-server.
+	[3da7f0dad08f]
+
+	* src/ssl-params/ssl-params.c:
+	ssl-params: Long-running ssl-params process shouldn't cause Dovecot
+	restart to fail.
+	[17aaab5511f2]
+
+	* src/lib-ssl-iostream/iostream-openssl-context.c:
+	lib-ssl-iostream: Give better error message if CA settings are
+	missing.
+	[ac832f051b49]
+
+	* src/lib-storage/index/dbox-multi/mdbox-storage.c, src/lib-
+	storage/index/dbox-multi/mdbox-storage.h, src/lib-storage/index
+	/dbox-multi/mdbox-sync.c, src/lib-storage/index/dbox-single/sdbox-
+	storage.c, src/lib-storage/index/dbox-single/sdbox-storage.h, src
+	/lib-storage/index/dbox-single/sdbox-sync.c:
+	dbox: Fixed "UIDVALIDITY=0" error race condition. If session 1 had
+	mkdir()ed but not yet created the initial index, while session 2
+	attempted to open the mailbox, it would create an empty index and
+	log the error.
+	[98702a45784c]
+
+	* src/master/main.c:
+	master: Make sure new processes aren't created after stop signal is
+	received.
+	[d7627178a7f2]
+
+	* src/lib-storage/index/mbox/mbox-mail.c:
+	mbox: Handle correctly if MAIL_FETCH_HEADER_MD5 lookup fails because
+	mail is already expunged.
+	[f9ab3d21689b]
+
+	* src/lib-auth/auth-master.c:
+	lib-auth: Don't leave stale pointers to stack lying around in
+	memory.
+	[5ae2ae657a95]
+
+	* src/lib/ioloop-kqueue.c:
+	ioloop-kqueue: Added assert
+	[c8b1e5833a28]
+
+	* src/imap/cmd-append.c, src/imap/cmd-urlfetch.c, src/imap/imap-fetch-
+	body.c:
+	imap: If FETCH fails, log the stream's error string instead of
+	errno.
+	[c140de1b506b]
+
+	* src/lib/istream-chain.c, src/lib/istream-concat.c, src/lib/istream-
+	seekable.c:
+	istream-chain/concat/seekable: When child stream fails, copy its
+	error to ourself.
+	[0eee8caeaa53]
+
+	* src/lib/istream-file.c:
+	istream-file: Assert-crash if read() fails with EBADF. Something's
+	already wrong at that point and it may not be safe to continue. Also
+	crashing makes it easier to debug such situation.
+	[28df180ec3ab]
+
+	* src/lib-compression/istream-bzlib.c, src/lib-compression/istream-
+	zlib.c, src/lib-fs/istream-metawrap.c, src/lib-mail/istream-dot.c,
+	src/lib-mail/istream-qp-decoder.c, src/lib-ssl-iostream/iostream-
+	openssl.c, src/lib-ssl-iostream/iostream-openssl.h, src/lib-ssl-
+	iostream/istream-openssl.c, src/lib-ssl-iostream/ostream-openssl.c,
+	src/lib-storage/index/istream-mail.c, src/lib-storage/index/mbox
+	/istream-raw-mbox.c, src/lib/istream-base64-decoder.c, src/lib
+	/istream-concat.c, src/lib/istream-file.c, src/lib/istream-hash.c,
+	src/lib/istream-jsonstr.c, src/lib/istream-mmap.c, src/lib/istream-
+	sized.c, src/lib/ostream-file.c:
+	iostreams: Set stream error string when it provides extra
+	information.
+	[76d5e3c8cec3]
+
+	* src/lib/iostream-private.h, src/lib/iostream.c, src/lib/istream.c,
+	src/lib/istream.h, src/lib/ostream.c, src/lib/ostream.h:
+	iostream: Added ability to set/get error strings for streams.
+	[e35be66003e2]
+
+2013-09-19  Timo Sirainen  <tss@iki.fi>
+
+	* src/doveadm/doveadm-auth.c:
+	doveadm: Added "auth lookup" command to do a passdb lookup.
+	[5a334879572b]
+
+	* src/auth/passdb.c:
+	auth: Fixed non-auth passdb lookup when password had ".<encoding>"
+	suffix.
+	[ed1f5b4f38be]
+
+	* src/lib-imap-client/imapc-client.c, src/lib-imap-client/imapc-
+	client.h, src/lib-storage/index/imapc/imapc-list.c, src/lib-
+	storage/index/imapc/imapc-storage.c:
+	imapc: Abort pending commands before any deinitialization to avoid
+	crashes.
+	[827ebbf9da5f]
+
+2013-09-18  Stephan Bosch  <stephan@rename-it.nl>
+
+	* src/lib-http/Makefile.am, src/lib-http/test-http-request-parser.c:
+	lib-http: Created tests for http_request_parser.
+	[b92118278b06]
+
+	* src/lib/uri-util.c:
+	uri-util: Improved authority 'host' parse error.
+	[9bf25c18ad33]
+
+	* src/lib-http/http-url.c:
+	lib-http: http-url: Fixed return of proper error message in case of
+	a failure to parse request target Host header. Assigned the error to
+	the parser object rather than returning it directly.
+	[8442a0dc44b7]
+
+	* src/lib-http/http-request-parser.c:
+	lib-http: Fixed handling of limits=NULL parameter for
+	http_request_parser_init. Got messed up in patch queue.
+	[34d3a9a883fa]
+
+2013-09-18  Timo Sirainen  <tss@iki.fi>
+
+	* src/doveadm/dsync/dsync-brain-mailbox-tree-sync.c:
+	dsync: Don't attempt to access mailbox contents with -g "" or -m ""
+	parameter.
+	[a7be7ee98538]
+
+2013-09-17  Timo Sirainen  <tss@iki.fi>
+
+	* src/lib-storage/index/index-storage.c, src/lib-storage/mail-
+	storage.h:
+	lib-storage: Added a separate prefix for server metadata that aren't
+	deleted with INBOX.
+	[194383b51917]
+
+	* src/doveadm/dsync/dsync-brain-mailbox-tree-sync.c, src/doveadm/dsync
+	/dsync-brain-mailbox.c, src/doveadm/dsync/dsync-brain-private.h,
+	src/doveadm/dsync/dsync-mailbox-import.c:
+	dsync: Improved debug/error logging for changes during sync.
+	[393c389b1540]
+
+2013-09-17  Stephan Bosch  <stephan@rename-it.nl>
+
+	* src/lib-http/http-url.c, src/lib-http/http-url.h, src/lib-http/test-
+	http-url.c:
+	lib-http: Added (non-default) support for parsing user:pasword from
+	HTTP URL.
+	[ec9eab188dd8]
+
+	* src/lib-imap/imap-url.c, src/lib-imap/test-imap-url.c:
+	lib-imap: imap-url: Forgot to check for the presence of ':' in
+	userinfo, which is not allowed.
+	[6be5d8d8af2d]
+
+2013-09-16  Timo Sirainen  <tss@iki.fi>
+
+	* src/imap/imap-fetch-body.c:
+	imap: Fixed/improved error logging for FETCH
+	[be26ae8a9fca]
+
+2013-09-17  Stephan Bosch  <stephan@rename-it.nl>
+
+	* src/lib-http/http-client-private.h, src/lib-http/http-client-
+	request.c:
+	lib-http: http-client: Allow overriding all implicitly generated
+	special headers. Which are: Connection, Content-Length, Date,
+	Expect, Host, and Transfer-Encoding.
+	[145be4e876a8]
+
+2013-09-16  Timo Sirainen  <tss@iki.fi>
+
+	* src/lib/uri-util.c:
+	Fixed uri_parse_slashslash_authority() to skip over "//".
+	[a114a8bfce61]
+
+2013-09-16  Stephan Bosch  <stephan@rename-it.nl>
+
+	* src/lib-http/http-client-connection.c:
+	lib-http: http-client: Fixed segfault caused by earlier improvement
+	of connection output locking. Segfault was triggered when an aborted
+	request received a response.
+	[7fc1dcfc5e3a]
+
+2013-09-15  Stephan Bosch  <stephan@rename-it.nl>
+
+	* src/lib-http/http-client-request.c:
+	lib-http: http-client: Implemented explicit HTTP/1.0 support.
+	[bcaee8677d7d]
+
+	* src/lib-http/http-message-parser.c:
+	lib-http: Added support for handling HTTP/1.0 messages explicitly.
+	This means that default connection persistence semantics are
+	inverted for HTTP/1.0 and keep-alive Connection option is
+	recognized.
+	[ccd39339596e]
+
+	* src/lib-http/http-request-parser.c, src/lib-http/http-request-
+	parser.h, src/lib-http/http-request.h:
+	lib-http: Added support for parsing Expect: header (currently only
+	accepts `100-continue').
+	[9da90cf29d91]
+
+	* src/lib-http/http-request-parser.c, src/lib-http/http-request-
+	parser.h:
+	lib-http: http-request-parser: Added function to test whether
+	payload from previous request is still being parsed. This is needed
+	in the server implementation to check whether a request is
+	completely read.
+	[e53f5173fa2d]
+
+	* src/lib-http/http-request-parser.c, src/lib-http/http-request-
+	parser.h, src/lib-http/http-request.h, src/lib-http/test-http-
+	server.c:
+	lib-http: Implemented limits on request method and target length.
+	[7c7e3aa13de7]
+
+	* src/lib-http/http-message-parser.c, src/lib-http/http-message-
+	parser.h, src/lib-http/http-request-parser.c, src/lib-http/http-
+	response-parser.c, src/lib-http/http-transfer-chunked.c, src/lib-
+	http/http-transfer.h, src/lib-http/test-http-transfer.c:
+	lib-http: Added support for enforcing a payload limit for incoming
+	HTTP messages.
+	[a335db9dca6a]
+
+	* src/lib-http/http-message-parser.c, src/lib-http/http-message-
+	parser.h, src/lib-http/http-request-parser.c, src/lib-http/http-
+	request-parser.h, src/lib-http/http-response-parser.c, src/lib-http
+	/test-http-server.c:
+	lib-http: Adjusted message and request parsers to return an error
+	code.
+	[28e5d58e49dc]
+
+	* src/lib-http/http-request-parser.c, src/lib-http/http-request.h, src
+	/lib-http/test-http-server.c:
+	lib-http: Adjusted request parser to pre-parse the request target
+	and host header into a proper target url.
+	[eeaa68773f73]
+
+	* src/lib-http/http-request.h, src/lib-http/http-url.c, src/lib-http
+	/http-url.h:
+	lib-http: Added support for parsing request target URLs.
+	[29ceb7126b91]
+
+	* src/lib-http/http-request-parser.c, src/lib-http/http-response-
+	parser.c:
+	lib-http: Improved display of invalid characters in parse error
+	messages.
+	[bbe4a469e276]
+
+	* src/lib-http/http-client-connection.c, src/lib-http/http-client.c,
+	src/lib-http/http-client.h, src/lib-http/http-header-parser.c, src
+	/lib-http/http-header-parser.h, src/lib-http/http-header.h, src/lib-
+	http/http-message-parser.c, src/lib-http/http-message-parser.h, src
+	/lib-http/http-request-parser.c, src/lib-http/http-request-parser.h,
+	src/lib-http/http-response-parser.c, src/lib-http/http-response-
+	parser.h, src/lib-http/http-transfer-chunked.c, src/lib-http/test-
+	http-header-parser.c, src/lib-http/test-http-response-parser.c, src
+	/lib-http/test-http-server.c:
+	lib-http: Implemented limits on overall HTTP header size, size of
+	individual header fields and the number of fields in the header.
+	[572b9a9031e7]
+
+	* src/lib-http/Makefile.am, src/lib-http/http-client-request.c, src
+	/lib-http/http-header.c, src/lib-http/http-header.h, src/lib-http
+	/http-message-parser.c, src/lib-http/http-message-parser.h, src/lib-
+	http/http-request-parser.c, src/lib-http/http-request-parser.h, src
+	/lib-http/http-request.c, src/lib-http/http-request.h, src/lib-http
+	/http-response-parser.c, src/lib-http/http-response.c, src/lib-http
+	/http-response.h:
+	lib-http: Unified http-request.h and http-response.h headers.
+	Renamed struct http_response_header to struct http_header_field,
+	encapsulated the array in struct http_header and put it all in http-
+	header.h/c Added inline utility functions for header querying and
+	getting response/request payload size.
+	[dca140149d80]
+
+	* src/lib-http/http-message-parser.c, src/lib-http/http-message-
+	parser.h, src/lib-http/http-request-parser.c, src/lib-http/http-
+	request-parser.h, src/lib-http/http-response-parser.c, src/lib-http
+	/http-response.h, src/lib-http/http-transfer.h:
+	lib-http: Improved message header and body parsing for better RFC
+	compliance. Added pre-parsed transfer-encoding and connection header
+	content (array) to parsed message struct. Fixed message body
+	handling for when both transfer-encoding and content-length headers
+	are missing. Now duplicates of unique important message headers
+	yield an error.
+	[d59ac8efc5af]
+
+	* src/lib-http/http-parser.c, src/lib-http/http-parser.h:
+	lib-http: Added support for parsing HTTP word syntax, which includes
+	quoted-string.
+	[1404dbde402c]
+
+	* src/lib-http/http-message-parser.c, src/lib-http/http-message-
+	parser.h, src/lib-http/http-request-parser.c, src/lib-http/http-
+	request-parser.h, src/lib-http/http-response-parser.c, src/lib-http
+	/test-http-server.c:
+	lib-http: Adjusted message parser to accept pool from caller.
+	[b172c130df9b]
+
+	* src/lib-http/http-client-connection.c, src/lib-http/http-request-
+	parser.c, src/lib-http/http-request-parser.h, src/lib-http/http-
+	response-parser.c, src/lib-http/http-response-parser.h, src/lib-http
+	/test-http-response-parser.c, src/lib-http/test-http-server.c:
+	lib-http: Adjusted response and request parsers to accept a
+	request/response object to fill with data, rather than have it
+	return one.
+	[adb4d013073d]
+
+	* src/lib-http/http-client-connection.c, src/lib-http/http-client-
+	private.h, src/lib-http/http-client-request.c:
+	lib-http: Added support for asynchronous payload for requests. This
+	means that the payload stream passed to the request can be a non-
+	blocking socket stream from some other connection (e.g. proxy client
+	connection).
+	[a6ed95a30cb1]
+
+	* src/lib-http/http-url.c, src/lib-imap/imap-url.c, src/lib/uri-
+	util.c, src/lib/uri-util.h:
+	uri-util: Added support for parsing bare authority URI component
+	(for use in HTTP).
+	[3bd334529536]
+
+	* src/lib-http/http-client-private.h, src/lib-http/http-client-
+	request.c, src/lib-http/http-client.h:
+	lib-http: http-client: Requests now automatically generate a Date
+	header. The used date value is normally the submission time of the
+	request, but it can be set explicitly.
+	[e83f3d16a31d]
+
+	* src/lib-http/http-client-host.c, src/lib-http/http-client-peer.c,
+	src/lib-http/http-client-private.h:
+	lib-http: Fixed client connection and peer log labels to show proper
+	IPv6 peers. The labels did not put IPv6 addresses in square
+	brackets.
+	[bb6506d2d084]
+
+	* src/lib-http/http-client-private.h:
+	lib-http: Removed useless prev,next fields from struct
+	http_client_request.
+	[9af78d53e22f]
+
+	* src/lib-http/http-request-parser.c:
+	lib-http: Fixed handling of non-standard CRLF at end of request.
+	[819dd674f100]
+
+	* src/lib-http/http-client-connection.c, src/lib-http/http-client-
+	host.c, src/lib-http/http-client-peer.c, src/lib-http/http-client-
+	private.h, src/lib-http/http-client-request.c, src/lib-http/http-
+	client.c, src/lib-http/http-client.h:
+	lib-http: http-client: Fixed request scheduling and connection
+	management.
+	[bdc5d6dcfc53]
+
+	* src/lib-http/http-client-request.c:
+	lib-http: http-client: Fixed leak of ostream when request was
+	resubmitted upon 417 response regarding 100-continue. This would
+	only occur when the server refuses Expect: 100-continue with a 417
+	response. The payload_output stream would be overwritten without
+	being freed first.
+	[0bcbc30b81b7]
+
+	* src/lib-http/http-client-connection.c:
+	lib-http: http-client: Connection was using wrong request index in
+	request_wait_list to continue sending outgoing payload.
+	[abd565369b8f]
+
+	* src/lib-http/http-client-connection.c, src/lib-http/http-client-
+	request.c:
+	lib-http: http-client: Fixed pipelining when payload synchronizatio
+	(100-continue) is used. Forgot to lock the connection output, which
+	meant that new requests would enqueued for the connection while
+	waiting for 100 Continue. This would cause an assert failure.
+	[7b775a06c38f]
+
+2013-09-14  Timo Sirainen  <tss@iki.fi>
+
+	* src/lib/connection.h:
+	Comment update.
+	[ae309d070b44]
+
+	* src/lib-fs/fs-api.c:
+	lib-fs: If backend doesn't implement exists(), emulate it with
+	stat().
+	[d483e6eb9a2c]
+
+2013-09-12  Timo Sirainen  <tss@iki.fi>
+
+	* src/doveadm/doveadm-mail-server.c:
+	doveadm: Don't refer to old doveadm_proxy_port setting name in error
+	message.
+	[1db5ede2a1cd]
+
+	* src/lib/istream-hash.c:
+	istream-hash: Data was hashed multiple times in some situations
+	[fe8ac44541ae]
+
+	* src/lib/istream.c:
+	istream: Improved "stream not seekable" panic message.
+	[262fbb878ed4]
+
+	* src/lib/istream-hash.c:
+	istream-hash: Allow seeking, but only after reading the hash.
+	[c8f17405ff71]
+
+	* src/auth/auth-settings.c:
+	auth: auth-client socket should be owned by $default_internal_user
+	It's mostly the same as auth-login, which is also owned by it.
+	[96fa57cacfc7]
+
+2013-09-10  Timo Sirainen  <tss@iki.fi>
+
+	* src/lib-fs/fs-api-private.h, src/lib-fs/fs-api.c, src/lib-fs/fs-
+	api.h:
+	lib-fs: Added support for asynchronous fs iteration.
+	[6ed90c968ab1]
+
+	* src/lib-fs/fs-api-private.h, src/lib-fs/fs-api.c, src/lib-fs/fs-
+	api.h:
+	lib-fs: Added support for giving a hash of the written data to be
+	verified by storage.
+	[7e0ebc2faf3c]
+
+2013-09-09  Timo Sirainen  <tss@iki.fi>
+
+	* src/lib/Makefile.am, src/lib/istream-hash.c, src/lib/istream-hash.h:
+	liblib: Added istream-hash, similar to ostream-hash.
+	[f73c388ad360]
+
+	* src/lib/ostream-hash.h:
+	Minor code cleanup.
+	[63edc752479d]
+
+2013-09-08  Timo Sirainen  <tss@iki.fi>
+
+	* src/lib/hmac-cram-md5.c, src/lib/hmac.c, src/lib/hmac.h:
+	hmac: Fixed crashes on CPUs that don't allow unaligned memory
+	access.
+	[92a54bb2ee00]
+
+2013-09-06  Timo Sirainen  <tss@iki.fi>
+
+	* src/auth/auth-request.c:
+	auth: Removed unnecessary NULL check.
+	[66b5839375f0]
+
+	* src/lib-storage/index/imapc/imapc-mailbox.c:
+	imapc: Don't crash if server sends EXISTS while mailbox isn't
+	selected.
+	[b41828d3f663]
+
+	* src/plugins/fts-lucene/lucene-wrapper.cc:
+	fts-lucene: Fixed crash in doveadm dumping lucene index.
+	[07a8718ef3a8]
+
+	* src/lib-imap-client/imapc-connection.c:
+	Avoid doing side effects in assert.
+	[209a1ef01426]
+
+	* src/lib-index/mail-index-view-sync.c:
+	lib-index: Minor fix to regenerating missing transaction log parts.
+	[00d0856b4a0b]
+
+2013-09-05  Timo Sirainen  <tss@iki.fi>
+
+	* src/lib-lda/mail-deliver.c:
+	lib-lda: Fixed passing through error message when mailbox couldn't
+	be opened.
+	[82975fb3ae44]
+
+2013-09-04  Timo Sirainen  <tss@iki.fi>
+
+	* src/lib-storage/mailbox-uidvalidity.c:
+	And removed accidentally committed nbsp.
+	[6ffe37152ed0]
+
+	* src/doveadm/doveadm-dump-log.c, src/doveadm/doveadm-dump-
+	mailboxlog.c, src/doveadm/doveadm-dump-thread.c, src/lib-master
+	/master-service-settings.c, src/lib-storage/index/mbox/mbox-lock.c,
+	src/lib-storage/mailbox-uidvalidity.c, src/lib/unix-socket-create.c,
+	src/plugins/acl/acl-backend-vfile-acllist.c, src/plugins/fts-squat
+	/squat-trie.c, src/plugins/zlib/zlib-plugin.c, src/ssl-params/ssl-
+	params.c:
+	Fixed file descriptor leaks in rather unimportant places. Found by
+	Coverity scan.
+	[3091883c672a]
+
+	* src/lib-index/mail-index-sync-update.c, src/lib-index/mail-
+	transaction-log-file.c:
+	lib-index: Fixed modseq updates when modseq was over 32bits long
+	[4d297ab881ef]
+
+	* src/lib/macros.h:
+	i_close_fd() didn't handle errors correctly with gcc.
+	[39972f75b143]
+
+	* src/doveadm/doveadm-master.c, src/master/main.c:
+	Fixed off-by-one buffer overflows (practically non-exploitable).
+	Found by Coverity scan.
+	[72028f670746]
+
+2013-09-02  Timo Sirainen  <tss@iki.fi>
+
+	* src/master/service-monitor.c:
+	master: Fix to previous pre-forking change.
+	[108a8158c1a9]
+
+	* src/master/service-monitor.c, src/master/service-process.c,
+	src/master/service.h:
+	master: Pre-fork processes only while master doesn't have more
+	important things to do.
+	[a3f0aca52d6f]
+
+	* src/lib-master/master-auth.c, src/lib-master/master-login.c:
+	lib-master: If net_connect_unix() fails with EAGAIN, point to a wiki
+	link for reasons.
+	[a4bfccbc2477]
+
+2013-08-29  Timo Sirainen  <tss@iki.fi>
+
+	* src/lib-ssl-iostream/istream-openssl.c:
+	lib-ssl-iostream: Don't assert-crash if stream buffer gets full.
+	[470153d92662]
+
+	* src/lib-storage/mailbox-uidvalidity.c:
+	lib-storage: Auto-create dovecot-uidvalidity's missing parent
+	directory
+	[5e01ab977406]
+
+	* src/log/log-error-buffer.c:
+	Fixed compiling with old gcc.
+	[5d22d0c0b233]
+
+2013-08-27  Timo Sirainen  <tss@iki.fi>
+
+	* src/lib-storage/index/dbox-common/dbox-file-fix.c, src/lib-
+	storage/index/dbox-common/dbox-file.h:
+	dbox: When fixing a broken file, try harder to find only valid
+	message/metadata positions. The previous method sometime broke with
+	compressed mail content, because the magic blocks were so short.
+	[f965670a7b69]
+
+2013-08-21  Timo Sirainen  <tss@iki.fi>
+
+	* src/director/director-connection.c, src/director/director-host.c,
+	src/director/director-host.h:
+	director: Reset last-seen-sync-sequence after remote director
+	restarts.
+	[9531ec8afe8b]
+
+	* src/lib-storage/index/index-sync.c:
+	lib-storage: When doing a fast sync, refresh index to see if it had
+	any changes. I'm pretty sure this used to be done earlier, but
+	probably some optimizations dropped it at some point.
+	[60b8746e6cfe]
+
+	* src/imap/cmd-append.c:
+	imap: Fixed potential assert crash in APPEND.
+	[0d966f8d53be]
+
+2013-08-17  Pascal Volk  <user@localhost.localdomain.org>
+
+	* doc/man/doveadm-pw.1.in:
+	man: doveadm-pw.1: Option -p can also be used with -t.
+	[c4f754d6967e]
+
+2013-08-15  Timo Sirainen  <tss@iki.fi>
+
+	* src/director/director-connection.c:
+	director: Previous change caused legitimate SYNC resends to be
+	ignored.
+	[f7a37b169f4a]
+
+2013-08-13  Timo Sirainen  <tss@iki.fi>
+
+	* src/lmtp/client.c, src/lmtp/client.h, src/lmtp/commands.c:
+	lmtp: Make it clear that the lda_settings is unexpanded in struct
+	client.
+	[ec62ea3c940e]
+
+	* src/auth/auth-request.c, src/auth/auth-request.h:
+	Minor change to prevent invalid code changes.
+	[2cbf5d7c7e4c]
+
+	* src/lib-lda/lda-settings.c:
+	lib-lda: Default postmaster_address wasn't being set. This broke
+	after it was set to allow %variables.
+	[40110f35ca64]
+
+	* src/lib-lda/lda-settings.c:
+	lib-lda: Don't alow %variables for hostname setting after all. I was
+	thinking maybe %d could be used there, but with LMTP the hostname is
+	used already in the greeting message before any RCPT TO is even
+	done.
+	[72ce58d50d2c]
+
+2013-08-12  Timo Sirainen  <tss@iki.fi>
+
+	* src/auth/auth-request.c, src/auth/auth-request.h:
+	auth: Added %{domain_first} and %{domain_last} variables. They are
+	both equal to %d normally, but differ when there are multiple '@'
+	characters in the domain.
+	[179f90dc0b1c]
+
+	* src/lib-index/mail-index-strmap.c, src/lib-index/mail-index-
+	strmap.h, src/lib-storage/index/index-thread.c:
+	lib-storage: If dovecot.index.thread corruption is noticed, delete
+	the file.
+	[e6c2a1344f86]
+
+	* src/lib-lda/lda-settings.c:
+	lib-lda: submission_host, sendmail_path and hostname settings can
+	now contain %variables
+	[07b41fd29a6e]
+
+	* src/lib-lda/smtp-client.c:
+	lib-lda: sendmail_path setting can contain parameters now.
+	[ca4628975fde]
+
+2013-08-11  Timo Sirainen  <tss@iki.fi>
+
+	* src/lib-storage/index/index-thread.c:
+	lib-storage: Improved error message in threading code's lost
+	message-id.
+	[5de1e4fdb758]
+
+2013-08-10  Timo Sirainen  <tss@iki.fi>
+
+	* src/lib-http/http-client-request.c:
+	lib-http: Removed more code duplication
+	[1f6059b5c774]
+
+	* src/lib-http/http-client-request.c:
+	lib-http: Removed duplicated code
+	[7fe7cb56b4a6]
+
+2013-08-08  Timo Sirainen  <tss@iki.fi>
+
+	* src/lmtp/commands.c:
+	lmtp: Don't write extra ([]) to Received: line for mails via UNIX
+	socket.
+	[9aa9944bd96e]
+
+2013-08-07  Timo Sirainen  <tss@iki.fi>
+
+	* src/imap/cmd-append.c:
+	imap: Fixed memory leak on APPEND error conditions.
+	[5dbea45eecb8]
+
+	* src/doveadm/dsync/dsync-ibc-stream.c:
+	dsync: We didn't send the new protocol version in handshake. This
+	caused problems when syncing mailbox formats that didn't support
+	saving GUIDs.
+	[044ec0204873]
+
+	* src/doveadm/dsync/dsync-mailbox-import.c:
+	dsync: Avoid assert-crash after an error.
+	[225655115265]
+
+	* src/lib-ssl-iostream/iostream-openssl-context.c, src/login-common
+	/ssl-proxy-openssl.c:
+	ssl: Fixed compiling with older OpenSSL libraries.
+	[27ebd9552471]
+
+	* src/director/director-connection.c, src/lib-ssl-iostream/iostream-
+	openssl-context.c, src/login-common/ssl-proxy-openssl.c:
+	Compiler warning fixes.
+	[17e43eda8f22]
+
+	* src/plugins/quota/quota-dict.c, src/plugins/quota/quota-fs.c,
+	src/plugins/quota/quota-maildir.c, src/plugins/quota/quota-
+	private.h, src/plugins/quota/quota.c:
+	quota: Improved init() failure error logging.
+	[a07ab0c638d2]
+
+2013-08-06  Pascal Volk  <user@localhost.localdomain.org>
+
+	* src/master/main.c:
+	master: Added --hostdomain to the help message.
+	[cecaa7b85f65]
+
+	* doc/man/dovecot.1.in:
+	man: dovecot.1: Added description of option --hostdomain.
+	[94d547439e73]
+
+2013-08-06  Timo Sirainen  <tss@iki.fi>
+
+	* src/doveadm/server-connection.c:
+	doveadm: If server connection gets disconnected, log the reason.
+	[c5c3eba6ae14]
+
+	* src/doveadm/dsync/dsync-ibc-stream.c:
+	dsync: Stream disconnection error message improvement
+	[64464646c020]
+
+	* src/doveadm/client-connection.c, src/doveadm/doveadm-mail-server.c:
+	doveadm-server: Error message logging improvements.
+	[e52284d3cc76]
+
+	* src/doveadm/client-connection.c, src/doveadm/doveadm-mail.c,
+	src/doveadm/doveadm-mail.h:
+	doveadm-server: Include client's IP address in logs.
+	[6c4917396b0d]
+
+	* src/doveadm/dsync/doveadm-dsync.c:
+	dsync: Don't leak iostreams when running via doveadm-server
+	[0cf837972a32]
+
+	* src/doveadm/dsync/dsync-ibc-stream.c:
+	dsync: Memory leak fix at deinit.
+	[960f827b7579]
+
+	* src/lib-ssl-iostream/iostream-openssl-context.c, src/lib-ssl-
+	iostream/iostream-openssl.c, src/lib-ssl-iostream/iostream-
+	openssl.h, src/lib-ssl-iostream/iostream-ssl-private.h, src/lib-ssl-
+	iostream/iostream-ssl.c:
+	lib-ssl-iostream: Deinitialization fixes.
+	[a53caa140f3d]
+
+	* src/doveadm/doveadm-mail-server.c, src/doveadm/dsync/doveadm-
+	dsync.c, src/doveadm/server-connection.c, src/doveadm/server-
+	connection.h:
+	doveadm: If we get disconnected from server, log the reason.
+	[07557a9c59b1]
+
+	* src/auth/auth-request.c, src/auth/passdb-pam.c, src/auth/passdb-
+	vpopmail.c, src/lib/net.c, src/lib/net.h, src/lib/uri-util.c,
+	src/lmtp/client.c, src/login-common/main.c:
+	net_ip2addr() changed to return "" instead of NULL on failure.
+	Pretty much everything in the code assumed that it would never fail,
+	which it normally doesn't except if the ip_addr was created for UNIX
+	sockets.
+	[58be84a381e5]
+
+	* src/doveadm/dsync/dsync-ibc-stream.c:
+	dsync: After reading remote hostname, use it for the log messages
+	instead of IP.
+	[7057d4ad8891]
+
+	* src/master/main.c:
+	master: Added --hostdomain setting to show the current hostdomain.
+	[5a3821097f3c]
+
+	* src/doveadm/client-connection.c, src/doveadm/dsync/doveadm-dsync.c:
+	dsync: Name remote connections better.
+	[ef5518ee5ab2]
+
+	* src/replication/replicator/dsync-client.c:
+	replicator: Fixed assert-crash if dsync server disconnected.
+	[820f4dbaebdd]
+
+2013-08-05  Timo Sirainen  <tss@iki.fi>
+
+	* .hgsigs:
+	Added signature for changeset 71f0696749ab
+	[b846a046d978]
+
+	* .hgtags:
+	Added tag 2.2.5 for changeset 71f0696749ab
+	[20e7fab87ad8]
+
+	* NEWS, configure.ac:
+	Released v2.2.5.
+	[71f0696749ab] [2.2.5]
+
+	* src/director/user-directory.c, src/lib-http/test-http-response-
+	parser.c:
+	Make static analyzer happier.
+	[c3901ac774cb]
+
+	* src/lib-storage/mail-storage-service.c:
+	lib-storage: Use a separate auth-userdb connection for iterating
+	through users. This is required because the auth-userdb connection
+	is also wanted in the middle of the iteration to do USER lookups.
+	[c41eab7d5d05]
+
+	* src/lib-auth/auth-master.c:
+	lib-auth: Previous changes didn't set the current ioloop correctly,
+	causing problems.
+	[19719ea2cddb]
+
+	* src/doveadm/doveadm-mail-mailbox-status.c, src/doveadm/doveadm-mail-
+	mailbox.c:
+	doveadm: Minor memory leak fixes at deinit.
+	[647ef2264398]
+
+	* src/lib-auth/auth-master.c:
+	lib-auth: auth_master_user_list_*() shouldn't create ioloop if it
+	already exists.
+	[f7dc5389ab0a]
+
+	* src/lib-storage/index/maildir/maildir-storage.c:
+	maildir: mailbox_create() was returning 1 instead of 0 on success.
+	This broke acl plugin's check to copy the ACLs to the newly created
+	mailbox.
+	[a3f645bc5195]
+
+	* src/dns/dns-client.c, src/lib/net.h:
+	dns: Use EAI_NONAME, not EAI_ADDRFAMILY to indicate "no addresses".
+	[556475a5c1be]
+
+	* src/lib-storage/index/mbox/mbox-sync.c:
+	mbox: Don't use file_set_size() to grow mbox file size.
+	posix_fallocate() apparently grows file size in 4kB blocks in GFS2
+	causing extra NULs to be written. The mbox file rarely needs to grow
+	so much that there's any point in using any optimizations for it.
+
+	Besides, this was the last place where file_set_size() was used. If
+	no further use can be found for it, it could be removed entirely.
+	[42b2736f146b]
+
+	* src/lib-auth/auth-master.c:
+	lib-auth: Another crashfix to auth_master_user_list_*()
+	[1adb8998c2a6]
+
+2013-08-05  Pascal Volk  <user@localhost.localdomain.org>
+
+	* .hgignore, doc/man/Makefile.am, doc/man/doveadm-exec.1.in,
+	doc/man/doveadm.1.in, doc/man/sed.sh:
+	man: Added doveadm-exec.1.
+	[d3e554bccf68]
+
+2013-08-05  Timo Sirainen  <tss@iki.fi>
+
+	* src/lib-storage/list/mailbox-list-fs-iter.c:
+	lib-storage: Fixed listing INBOX's children with LAYOUT=fs and non-
+	mbox format.
+	[692c1797a8c9]
+
+	* src/lib/net.c:
+	net_gethosterror(): Never return NULL.
+	[dc60e46f0cb5]
+
+	* src/dns/dns-client.c, src/lib-dns/dns-lookup.c, src/lib/net.h:
+	lib-dns, dns: Don't use IPv4-only error codes
+	[f69e08188622]
+
+	* src/lib-index/mail-index-sync-update.c:
+	lib-index: Replaced assert-crash with "index corrupted" error.
+	[d6290bd28253]
+
+	* src/lib-index/mail-index-sync-update.c:
+	lib-index: Silently ignore next_uid shrinking without treating them
+	as errors.
+	[374e338bb3d6]
+
+2013-08-04  Timo Sirainen  <tss@iki.fi>
+
+	* src/lib-http/http-client-request.c, src/lib-http/http-url.c, src
+	/lib-http/http-url.h:
+	lib-http: Fixed redirect request target encoding and NULL target.
+	Patch by Stephan Bosch.
+	[3af0ae411b37]
+
+	* src/imap/cmd-append.c:
+	imap: Various APPEND/CATENATE error handling bugfixes. Found using
+	Apple's catenate.pl test script.
+	[3c2e1879fdf6]
+
+	* src/lib-http/http-header-parser.c, src/lib-http/test-http-header-
+	parser.c:
+	lib-http: Ignore trailing whitespace in headers. Patch by Stephan
+	Bosch.
+	[2d6497a4f124]
+
+	* src/lib-http/http-client-connection.c:
+	lib-http: Don't crash when receiving 304 or a redirect without
+	Location: header. Patch by Stephan Bosch
+	[97fcb2904b22]
+
+2013-08-03  Timo Sirainen  <tss@iki.fi>
+
+	* doc/man/doveadm-deduplicate.1.in:
+	man: Fixed doveadm-deduplicate.1 Patch by Pascal Volk
+	[292991f2d504]
+
+	* doc/man/Makefile.am:
+	Makefile: Fixed previous commit.
+	[0e38ca2aa8d6]
+
+2013-08-02  Pascal Volk  <user@localhost.localdomain.org>
+
+	* .hgignore, doc/man/Makefile.am, doc/man/doveadm-deduplicate.1.in,
+	doc/man/doveadm-flags.1.in, doc/man/doveadm.1.in:
+	man: Added doveadm-deduplicate.1 and doveadm-flags.1.
+	[78a3b43af482]
+
+2013-08-02  Timo Sirainen  <tss@iki.fi>
+
+	* src/doveadm/doveadm-mail-flags.c:
+	doveadm flags: Fixed help text for subcommands.
+	[f16816a69130]
+
+	* src/plugins/quota/quota-status.c:
+	quota-status: Added quota_status_toolarge message for mails larger
+	than user's quota limit. Based on patch by Ulrich Zehl
+	[78225937a030]
+
+	* src/plugins/quota/quota-status.c:
+	quota-status: Removed extra newlines from default
+	quota_status_overquota message. Patch by Ulrich Zehl
+	[3e98654cbb54]
+
+2013-08-01  Timo Sirainen  <tss@iki.fi>
+
+	* src/lib-ssl-iostream/iostream-openssl.c, src/login-common/ssl-proxy-
+	openssl.c:
+	ssl: Log SSL "close notify" alerts as debug messages, not warnings.
+	They are clean shutdown messages after all.
+	[2714f51e2355]
+
+	* src/plugins/quota/quota-storage.c:
+	quota: Don't log errors about missing namespaces for autocreated
+	shared mail_users.
+	[1705bf7bf484]
+
+	* src/lib-storage/mail-storage-service.c:
+	lib-storage: Improved seteuid() error messages a bit.
+	[f7f3ea4cb6df]
+
+	* src/lib-storage/mail-storage-service.c:
+	lib-storage: If settings can't be read because of permission denied,
+	restart process.
+	[2bccde4027ea]
+
+	* src/lib-master/master-service-settings.c, src/lib-master/master-
+	service-settings.h:
+	lib-master: Added master_service_settings_output.permission_denied
+	error flag.
+	[5696b0162527]
+
+	* src/lib-master/master-service-settings.c:
+	lib-master: If config socket closes, retry connecting to it
+	automatically.
+	[96ea65bf653c]
+
+	* src/lib-master/master-service-settings.c, src/lib-master/master-
+	service-settings.h, src/lib-master/master-service.c, src/lib-master
+	/master-service.h:
+	lib-master: If MASTER_SERVICE_FLAG_KEEP_CONFIG_OPEN is set, open the
+	config socket before dropping privileges.
+	[eb63eca74471]
+
+	* src/lib-storage/mail-storage-service.c:
+	lib-storage: Ignore MAIL_STORAGE_SERVICE_FLAG_TEMP_PRIV_DROP if
+	service user isn't root.
+	[43488e1044c9]
+
+2013-07-30  Timo Sirainen  <tss@iki.fi>
+
+	* src/plugins/quota/quota-status.c:
+	quota-status: Keep the config connection open.
+	[51b8020b29f6]
+
+	* src/lib-storage/mail-storage-service.c:
+	lib-storage: With temporary privilege dropping, switch to root
+	before doing config lookup. This fixes the problem of not having
+	enough permissions to connect to the config socket.
+	[2470bb9106b0]
+
+	* src/lib-auth/auth-master.c:
+	lib-auth: Don't crash in auth_master_user_list_*() if socket can't
+	be connected to.
+	[0cab916b28c6]
+
+2013-07-29  Timo Sirainen  <tss@iki.fi>
+
+	* src/director/director-connection.c, src/director/director-host.h,
+	src/director/director.c, src/director/director.h:
+	director: Avoid infinite SYNC loops if the originating director goes
+	away for a long time.
+	[a6736e42301e]
+
+	* src/director/director-connection.c, src/director/user-directory.c,
+	src/director/user-directory.h:
+	director: Update existing users' timestamps during handshake.
+	[5ef62caea61b]
+
+	* src/director/director-test.c, src/director/director-test.sh:
+	director: Fixes to director-test.
+	[366024103c09]
+
+	* src/director/director-connection.c:
+	director: Fixes to handling users near expiration.
+	[9b8b5ce6ecb0]
+
+	* src/director/director-connection.c:
+	director: Log director disconnection errno correctly.
+	[0ad8da149774]
+
+	* src/director/user-directory.c:
+	director: Expire users a bit more correctly. Also make sure that the
+	"user near expiring" interval is at least 3 seconds in case
+	director_user_expire is very low.
+	[0e0eb964685a]
+
+	* src/director/director-settings.c:
+	director: Don't allow director_user_expire to be less than 10
+	seconds.
+	[d95ca476098c]
+
+2013-07-17  Timo Sirainen  <tss@iki.fi>
+
+	* src/lib/connection.c:
+	liblib: connection_disconnect() didn't close fd_out if it was
+	different from fd_in.
+	[50117c22151e]
+
+2013-07-12  Timo Sirainen  <tss@iki.fi>
+
+	* src/director/login-connection.c:
+	director: Don't log an error if login connection gets closed with
+	ECONNRESET.
+	[ebbe00999da8]
+
+	* src/auth/auth-request.c, src/auth/auth-request.h:
+	auth: With multiple passdbs the previous passdb's userdb_* fields
+	weren't cleared.
+	[3e6b136d936c]
+
+	* src/auth/auth-request.c, src/auth/auth-request.h, src/auth/auth-
+	worker-client.c:
+	auth: If blocking passdb returned only NULLs for userdb_ fields, use
+	userdb prefetch anyway.
+	[2be295a0b64f]
+
+	* src/auth/auth-master-connection.c, src/auth/auth-worker-client.c:
+	auth: Use fewer syscalls for sending user list.
+	[86275093e7b3]
+
+	* src/lib-auth/auth-master.c, src/lib-auth/auth-master.h:
+	lib-auth: auth_master_user_list_*() no longer reads the entire user
+	list into memory.
+	[328bc770af54]
+
+	* src/doveadm/doveadm-mail.c, src/lib-storage/mail-storage-service.c,
+	src/lib-storage/mail-storage-service.h:
+	lib-storage: mail_storage_service_all_init() no longer returns total
+	number of users. In preperation for removing the count
+	functionality, since it requires reading all the users into memory
+	for it to work.
+
+	This also required removing the /total from verbosity counter with
+	doveadm -A.
+	[c0b0f46ff581]
+
+	* src/auth/auth-worker-client.c:
+	auth: Avoid wasting data stack when iterating users.
+	[7172b893101d]
+
+	* doc/man/doveadm-director.1.in:
+	man: Updated doveadm-director man page.
+	[a97caa1ce2b7]
+
+	* src/lib-ssl-iostream/iostream-openssl-context.c:
+	lib-ssl-iostream: Crashfix for recent change.
+	[50b1d59912eb]
+
+2013-07-11  Timo Sirainen  <tss@iki.fi>
+
+	* src/lib-http/Makefile.am, src/lib-http/test-http-server.c:
+	lib-http: Added a very dummy test-http-server
+	[6d986d132fb8]
+
+	* src/lib-http/Makefile.am, src/lib-http/http-message-parser.c, src
+	/lib-http/http-message-parser.h, src/lib-http/http-request-parser.c,
+	src/lib-http/http-request-parser.h, src/lib-http/http-response-
+	parser.c:
+	lib-http: Implemented http-request-parser for HTTP servers. Moved
+	code common with it and http-response-parser to http-message-parser.
+	[c55bd41133a2]
+
+	* src/lib-http/Makefile.am, src/lib-http/http-client.h, src/lib-http
+	/http-response-parser.h, src/lib-http/http-response.h:
+	lib-http: Moved struct http_response* to http-response.h Also http-
+	client.h now #includes only http-response.h
+	[c5952dd642c6]
+
+	* src/lib-http/http-response-parser.c:
+	lib-http: Minor change to make sure http_response_header.size is
+	always correct. The current http-header-parser already guaranteed
+	that it is, but this change just adds extra guarantees that it won't
+	break in future. Besides, this change improves the performance
+	slightly by avoiding strlen().
+	[69cc86583da2]
+
+	* src/lib-http/http-response-parser.c:
+	lib-http: Minor fix/cleanup to detecting stream errors when skipping
+	payload.
+	[dbda2f84aeaa]
+
+	* src/lib-http/test-http-response-parser.c:
+	lib-http: Updated test-http-response-parser
+	[1ab7d7dd3087]
+
+	* src/lib-http/test-http-header-parser.c:
+	lib-http: test-http-header-parser makes sure the parser works one
+	byte at a time.
+	[feac6ec9fa6e]
+
+	* src/lib-http/test-http-response-parser.c:
+	lib-http: Fixed previous test-http-response-parser change.
+	[55ae488349d2]
+
+	* src/lib-http/http-response-parser.c, src/lib-http/test-http-
+	response-parser.c:
+	lib-http: Fixed handling responses whose header arrives in smaller
+	pieces.
+	[07fb7d4665c6]
+
+	* src/lib-http/http-response-parser.c:
+	lib-http: Simplify http response status-line parsing code. Also by
+	not using a temporary string buffer the istream can at least in
+	theory limit the maximum status-line length (=max memory usage).
+	[d7244f7ceca4]
+
+	* src/lib-http/http-client-connection.c:
+	lib-http: Http requests weren't freed when connection was aborted.
+	Patch by Stephan Bosch.
+	[a99b211f0409]
+
+	* src/lib-ssl-iostream/iostream-openssl-context.c:
+	lib-ssl-iostream: Compiler warning fix
+	[dff200f433d2]
+
+2013-07-10  Timo Sirainen  <tss@iki.fi>
+
+	* src/lib-ssl-iostream/iostream-openssl-common.c:
+	lib-ssl-iostreams: ssl_protocols setting supports now TLSv1.1 and
+	TLSv1.2 values.
+	[3a08bd30d180]
+
+	* src/auth/auth.c:
+	auth: Fixed crash for some lookups that didn't specify service name.
+	[aff54366b1b6]
+
+	* src/plugins/quota/quota-maildir.c:
+	Maildir++ quota: When recreating, don't use maildirsize.lock file.
+	The point was never to even try to lock it, it just used to be an
+	easier API to create the file. Nowadays safe_mkstemp_hostpid_group()
+	works just as easily. This normally doesn't matter, but apparently
+	Exim+CPanel leaves maildirsize.lock files lying around, causing
+	Dovecot to not update maildirsize.
+	[24d6708cea76]
+
+	* src/lib-ssl-iostream/iostream-openssl-context.c:
+	lib-ssl-iostream: Added support for ECDH/ECDHE cipher suites Based
+	on the login-common patch by David Hicks.
+	[dc99912e5047]
+
+	* src/login-common/ssl-proxy-openssl.c:
+	login-common: Compiler warning fix with OpenSSL v1.0.2+
+	[ac0dd2fbdbf0]
+
+	* src/lib-http/http-client-private.h:
+	lib-http: Minor comment update.
+	[f296a05246fb]
+
+2013-07-06  David Hicks  <david@hicks.id.au>
+
+	* src/login-common/ssl-proxy-openssl.c:
+	login-common: Add support for ECDH/ECDHE cipher suites
+
+	ECDH temporary key parameter selection must be performed during
+	OpenSSL context initialisation before ECDH and ECDHE cipher suites
+	can be used.
+
+	OpenSSL >= 1.0.2 automatically handles ECDH temporary key parameter
+	selection. For OpenSSL < 1.0.2 we must manually specify a named
+	elliptic curve that Dovecot will use to generate an ephemeral key
+	pair. By default we try to use the same named curve as that used in
+	the server's private EC key file. If this attempt fails, a fall back
+	curve of NIST P-384 (secp384r1) is used instead.
+
+	RFC 6460 states that NIST P-384 MUST be used for cipher suites that
+	include AES-256. For cipher suites that include AES-128, RFC 6460
+	states that NIST P-256 MUST be used. No matter which curve is used
+	as a fall back option, Dovecot will be non-compliant. The reason for
+	selecting NIST P-384 as a fall back curve is to ensure that the non-
+	compliance is in the form of providing too great a level of security
+	for AES-128 cipher suites rather than too little security for
+	AES-256 cipher suites.
+	[331d0a4fe772]
+
+2013-07-10  Timo Sirainen  <tss@iki.fi>
+
+	* src/lib-storage/index/imapc/imapc-list.c, src/lib-
+	storage/index/imapc/imapc-list.h, src/lib-storage/index/imapc/imapc-
+	mail-fetch.c, src/lib-storage/index/imapc/imapc-save.c, src/lib-
+	storage/index/imapc/imapc-storage.c, src/lib-storage/index/imapc
+	/imapc-storage.h, src/lib-storage/index/imapc/imapc-sync.c:
+	imapc: Reorganize code so that imapc_list works without
+	imapc_storage. Most importantly fixes crashes when imapc_list is
+	trying to lookup hierarchy separator before storage is created.
+	[620876853f6f]
+
+	* src/lib-storage/index/imapc/imapc-list.c, src/lib-
+	storage/index/imapc/imapc-list.h:
+	imapc: Code cleanup: Don't access imapc settings via storage.
+	[e45ad5524f1a]
+
+	* src/lib-storage/index/imapc/imapc-storage.c:
+	imapc: Minor code cleanup.
+	[673648c6fb4b]
+
+	* src/auth/db-ldap.c, src/auth/db-ldap.h, src/auth/passdb-ldap.c,
+	src/auth/userdb-ldap.c:
+	auth: If passdb ldap returned no values for userdb_ fields, use
+	userdb prefetch anyway.
+	[939aa051e3f1]
+
+	* src/auth/auth-request.c, src/auth/auth-request.h, src/auth/passdb-
+	sql.c:
+	auth: If passdb sql returned only NULLs for userdb_ fields, use
+	userdb prefetch anyway.
+	[9091d0f2d971]
+
+	* src/pop3/pop3-commands.c:
+	pop3: Avoid assert-crash if client disconnects during LIST.
+	[debbcfe5577a]
+
+	* src/lib-http/http-client-connection.c, src/lib-http/http-client-
+	peer.c, src/lib-http/http-client-private.h:
+	lib-http: Fix/cleanup to handling connect failures. There was some
+	kind of double-error handling which messed up things.
+	[4707096101a4]
+
+	* src/lib-http/http-client-host.c, src/lib-http/http-client-peer.c,
+	src/lib-http/http-client-private.h:
+	lib-http: Fixed tracking number of pending connections to host-port.
+	[129ae6342b28]
+
+	* src/lib-http/http-client-host.c:
+	lib-http: Don't assert-crash in case of somewhat unexpected failing
+	connections.
+	[843208699cbc]
+
+	* src/lib-http/http-client-host.c, src/lib-http/http-client-private.h:
+	lib-http: Always try to connect to host's all IPs when connections
+	fail. Previously this was done only when the new connections started
+	from the first IP.
+	[dee7822501b0]
+
+2013-06-28  Timo Sirainen  <tss@iki.fi>
+
+	* src/dns/dns-client.c, src/lib-dns/dns-lookup.c, src/lib-dns/dns-
+	lookup.h:
+	dns, lib-dns: Added support for async DNS PTR lookups.
+	[1fbac590b9d4]
+
+	* src/lib/net.c, src/lib/net.h:
+	Added net_gethostbyaddr() for DNS PTR lookups. This code assumes we
+	have IPv6 capability. Perhaps we should just require it everywhere
+	already..
+	[eaa712530f3f]
+
+2013-06-27  Timo Sirainen  <tss@iki.fi>
+
+	* src/lib-http/http-client-connection.c, src/lib-http/http-client-
+	peer.c:
+	lib-http: Added more debug messages.
+	[a6b00756ab2c]
+
+	* src/lib-http/http-client-host.c:
+	lib-http: When successfully connected to a peer, don't drop the
+	peer's pending connections. They could have been intentionally
+	created for other urgent requests.
+	[e405105a0c24]
+
+	* src/lib-http/http-client-connection.c:
+	lib-http: Don't crash if payload stream is referenced by caller
+	after its connection is freed.
+	[20a0595e6e5d]
+
+	* src/lib-http/http-client-connection.c:
+	lib-http: Remove request timeout from being used during payload
+	read. The reading is done by the lib-http caller, which should have
+	its own timeouts.
+	[9fd54d123e22]
+
+	* src/lib-http/http-client-request.c:
+	lib-http: Call request's destroy callback always, not just on
+	success.
+	[eb63569f0f73]
+
+	* src/lib-http/http-client-connection.c:
+	lib-http: If connection times out, set the stream's errno to
+	ETIMEDOUT in case it's used.
+	[3fdfbabf3dcf]
+
+	* src/lib-http/http-client-connection.c:
+	lib-http: When connection is freed, abort also the pending request.
+	[110d18bf9e30]
+
+	* src/lib-http/http-client-connection.c:
+	lib-http: Timeouts were being handled wrong/leaked by ioloop
+	switching.
+	[975fdf5a6987]
+
+	* src/lib-http/http-client-connection.c, src/lib-http/http-client-
+	peer.c, src/lib-http/http-client-private.h:
+	lib-http: Minor code cleanup.
+	[cf9024b01720]
+
+	* src/lib-http/http-client-peer.c:
+	lib-http: Fixed hang when many connections were being created and
+	closed.
+	[af23c7a899a9]
+
+	* src/lib-http/http-client.c, src/lib-http/http-client.h:
+	lib-http: Added http_client_get_pending_request_count()
+	[185dfd05b57a]
+
+2013-06-26  Timo Sirainen  <tss@iki.fi>
+
+	* src/doveadm/dsync/dsync-ibc-stream.c:
+	dsync: Recent changes broke remote dsync
+	[c2c09416d8a4]
+
+	* src/config/old-set-parser.c:
+	config: Give a somewhat better warning for when using
+	protocols=imaps or pop3s.
+	[e8cba978850d]
+
+	* src/doveadm/dsync/doveadm-dsync.c, src/doveadm/dsync/dsync-brain-
+	mailbox-tree-sync.c, src/doveadm/dsync/dsync-brain-mailbox-tree.c,
+	src/doveadm/dsync/dsync-brain-mailbox.c, src/doveadm/dsync/dsync-
+	brain-private.h, src/doveadm/dsync/dsync-brain.c, src/doveadm/dsync
+	/dsync-brain.h, src/doveadm/dsync/dsync-ibc-stream.c:
+	dsync: Added -1 parameter to do a "one way sync" without reverting
+	changes. This can be useful during migration when you don't want to
+	delete any mails, but you also don't want to send changes to the old
+	server either.
+	[0144704e1b99]
+
+	* src/doveadm/dsync/dsync-ibc-stream.c:
+	dsync: Send DSYNC_BRAIN_FLAG_NO_MAIL_SYNC via ibc-stream to slave
+	brain.
+	[2e6829462405]
+
+	* src/lib-storage/index/pop3c/pop3c-storage.c:
+	pop3c: Fixed mail saving to fail nicely, not assert-crash.
+	[42a5acba17e5]
+
+	* src/doveadm/dsync/dsync-mailbox-import.c:
+	dsync: Fixed syncing when one of the backends supported GUIDs.
+	[f3b9325509fd]
+
+	* src/lib-storage/index/pop3c/pop3c-storage.c:
+	pop3c: Return error instead of crashing when trying to save a mail.
+	[230f111056b4]
+
+	* src/doveadm/dsync/dsync-mailbox-import.c:
+	dsync: Fixed handling expunges when GUIDs aren't supported by the
+	backend(s).
+	[af8ce0a84bb5]
+
+	* src/imap-login/imap-proxy.c, src/lib-sasl/Makefile.am, src/lib-sasl
+	/dsasl-client-private.h, src/lib-sasl/dsasl-client.c, src/lib-sasl
+	/dsasl-client.h, src/lib-sasl/mech-login.c, src/lib-sasl/mech-
+	plain.c, src/lib-sasl/sasl-client-private.h, src/lib-sasl/sasl-
+	client.c, src/lib-sasl/sasl-client.h, src/login-common/client-
+	common-auth.c, src/login-common/client-common.c, src/login-common
+	/client-common.h, src/login-common/main.c,
+	src/pop3-login/pop3-proxy.c:
+	lib-sasl: Use dsasl_ prefix so we don't conflict with Cyrus SASL
+	library.
+	[2dd27b0e7e49]
+
+2013-06-25  Timo Sirainen  <tss@iki.fi>
+
+	* src/doveadm/dsync/dsync-transaction-log-scan.c:
+	dsync: Don't log index errors if modseq points beyond the current
+	view.
+	[d6b18c237be5]
+
+	* src/lib-storage/index/dbox-multi/mdbox-storage-rebuild.c:
+	mdbox: Resize mdbox index header if necessary also when rebuilding
+	indexes.
+	[be970e7928eb]
+
+	* src/lib-index/mail-index-transaction-export.c:
+	lib-index: Assert-crash instead of writing a broken transaction with
+	too large ext header update.
+	[8cf482b749e2]
+
+	* src/lib-index/mail-index-transaction-export.c:
+	lib-index: Don't write a broken transaction if extension resize is
+	done at first use.
+	[04c64300f81f]
+
+	* .hgsigs:
+	Added signature for changeset 4b3c9c3e4fb8
+	[a2555de348a7]
+
+	* .hgtags:
+	Added tag 2.2.4 for changeset 4b3c9c3e4fb8
+	[e7f3acd34e7b]
+
+	* NEWS, configure.ac:
+	Released v2.2.4.
+	[4b3c9c3e4fb8] [2.2.4]
+
+	* src/doveadm/dsync/dsync-brain-mailbox-tree.c:
+	Make static analyzer happier.
+	[b5e8aed1bf61]
+
+	* src/doveadm/doveadm-mail-deduplicate.c:
+	doveadm deduplicate: Fixed error handling.
+	[09b278416493]
+
+	* src/plugins/quota/quota.c:
+	quota: Fixed quota_rule with non-uppercase INBOX.
+	[f68a955f4c5c]
+
+2013-06-24  Timo Sirainen  <tss@iki.fi>
+
+	* src/imap-login/imap-proxy.c:
+	imap-login: If CAPABILITY is already in server banner, don't ask for
+	it again.
+	[6e8bbc150fa9]
+
+	* src/doveadm/dsync/dsync-mailbox-export.c:
+	dsync: Fixed "export:/count" value in verbose_proctitle=yes
+	[082fe68e38c9]
+
+	* src/lib-storage/index/mbox/mbox-lock.c:
+	mbox: Avoid assert-crashing by too optimistically upgrading a lock
+	to write-lock.
+	[04c7cf45a597]
+
+	* src/doveadm/dsync/dsync-brain.c:
+	dsync: Don't crash at deinit when dsync fails early.
+	[07e314199f56]
+
+	* src/doveadm/dsync/dsync-brain-mailbox-tree.c, src/doveadm/dsync
+	/dsync-brain-mailbox.c, src/doveadm/dsync/dsync-brain.c,
+	src/doveadm/dsync/dsync-brain.h:
+	dsync: Don't try to find mailboxes from unwanted namespaces.
+	[84014270ee37]
+
+	* src/doveadm/dsync/doveadm-dsync.c, src/doveadm/dsync/dsync-brain-
+	private.h, src/doveadm/dsync/dsync-brain.c, src/doveadm/dsync/dsync-
+	brain.h, src/doveadm/dsync/dsync-mailbox-export.c, src/doveadm/dsync
+	/dsync-mailbox-export.h, src/doveadm/dsync/dsync-mailbox-import.c,
+	src/doveadm/dsync/dsync-mailbox-import.h:
+	dsync: If verbose_proctitle=yes, show the current state in it.
+	[b5876fa03b0e]
+
+	* src/doveadm/dsync/dsync-brain.c:
+	dsync: State names were wrong in debug/error messages.
+	[83bea7e1f136]
+
+2013-06-18  Timo Sirainen  <tss@iki.fi>
+
+	* src/lib-storage/mailbox-list.c:
+	lib-storage: Fixed crash with some autocreated (e.g. shared)
+	namespaces.
+	[8a81c5a1b60f]
+
+	* src/lib-storage/index/dbox-single/sdbox-storage.c:
+	sdbox: If sdbox header is corrupted, resize it to make sure its size
+	is correct.
+	[07642120b6ea]
+
+	* src/doveadm/Makefile.am, src/doveadm/doveadm-mail-deduplicate.c,
+	src/doveadm/doveadm-mail.c, src/doveadm/doveadm-mail.h:
+	doveadm: Added deduplicate command. By default it deduplicates only
+	by GUIDs. With -m parameter it deduplicates by Message-Id: header.
+	[3683d7bff095]
+
+	* src/doveadm/Makefile.am, src/doveadm/doveadm-mail-flags.c,
+	src/doveadm/doveadm-mail.c, src/doveadm/doveadm-mail.h:
+	doveadm: Added "flags" command to modify messages' flags.
+	[5e51c5545029]
+
+	* src/lib-storage/index/dbox-multi/mdbox-storage.c:
+	mdbox: If mdbox header is corrupted, resize it to make sure its size
+	is correct.
+	[3056feb418b1]
+
+	* src/lib-index/mail-index-fsck.c, src/lib-index/mail-index-map.c, src
+	/lib-index/mail-index-modseq.c, src/lib-index/mail-index-private.h,
+	src/lib-index/mail-index-sync-ext.c, src/lib-index/mail-index-sync-
+	keywords.c, src/lib-index/mail-index-sync-update.c, src/lib-index
+	/mail-index-write.c:
+	lib-index: Don't bother tracking if header/records were changed.
+	They aren't really needed. When mail_index_write() is called, we
+	already know we want to update the index.
+	[37bd40e27b67]
+
+	* src/lib-index/mail-index-sync.c:
+	lib-index: If error is found from transaction log, update
+	dovecot.index so it won't be read again.
+	[3794e6cb0da8]
+
+	* src/lib-sasl/sasl-client.h:
+	lib-sasl: API usage comment update
+	[3dc92ec58aef]
+
+	* src/imap-login/imap-proxy.c, src/pop3-login/pop3-proxy.c:
+	imap/pop3 proxy: Master user logins were broken by lib-sasl change.
+	[ba720ff91a75]
+
+2013-06-17  Timo Sirainen  <tss@iki.fi>
+
+	* src/pop3/pop3-client.c:
+	pop3: Fixed crash at deinit
+	[1352949265cc]
+
+	* src/doveadm/dsync/dsync-brain-mailbox-tree.c:
+	dsync: Minor fixes to checking if namespace is wanted to be synced.
+	[014003da870e]
+
+	* src/doveadm/dsync/doveadm-dsync.c, src/doveadm/dsync/test-dsync-
+	mailbox-tree-sync.c, src/imap-login/imap-proxy.c,
+	src/pop3-login/pop3-proxy.c:
+	Make static analyzer happier.
+	[178fe5bf943b]
+
+	* .hgsigs:
+	Added signature for changeset 5d9f52c9a287
+	[5a137e3eb51e]
+
+	* .hgtags:
+	Added tag 2.2.3 for changeset 5d9f52c9a287
+	[c3c923724276]
+
+	* NEWS, TODO, configure.ac:
+	Released v2.2.3.
+	[5d9f52c9a287] [2.2.3]
+
+2013-06-16  Timo Sirainen  <tss@iki.fi>
+
+	* src/lib-storage/index/dbox-multi/mdbox-storage.c:
+	mdbox: Minor fix to handling corrupted mdbox header.
+	[5a429604923c]
+
+	* src/plugins/fts-lucene/lucene-wrapper.cc:
+	fts-lucene: Fixed building without libstemmer
+	[3c9bb07ea92e]
+
+	* src/lib-imap/imap-parser.c:
+	lib-imap: Fixed parsing literal8 in some situations.
+	[dd04b4ef530d]
+
+	* src/lib-mail/istream-attachment-extractor.c:
+	istream-attachment-extractor: Fixed handling attachment as the
+	message body without MIME. Don't crash at the end after parsing the
+	base64 data.
+	[9dcbcc0871f0]
+
+	* src/lib-storage/mail-storage-service.c:
+	lib-storage: mail_storage_service_lookup() ignored input->service.
+	[c290383e60da]
+
+2013-06-14  Timo Sirainen  <tss@iki.fi>
+
+	* src/doveadm/dsync/test-dsync-mailbox-tree-sync.c:
+	Compiler warning fix.
+	[30f00db1a8b0]
+
+	* src/doveadm/dsync/dsync-mailbox-tree-sync.c, src/doveadm/dsync/test-
+	dsync-mailbox-tree-sync.c:
+	dsync: Fixed syncing renaming mailboxes with children. So that the
+	childrens' rename timestamps are at least as high as their parents'.
+	[d36f6b256bc0]
+
+	* src/doveadm/dsync/dsync-mailbox-tree-sync.c:
+	dsync: Don't try to delete nonexistent mailbox directories.
+	[3ef37c649d27]
+
+	* src/doveadm/dsync/dsync-mailbox-tree-sync.c:
+	dsync: Avoid wasting data stack on larger renames.
+	[1c657812991b]
+
+2013-06-13  Timo Sirainen  <tss@iki.fi>
+
+	* src/plugins/quota/quota-status.c:
+	quota-status: Fixed log prefix.
+	[e6aa668477d8]
+
+	* src/lib-storage/index/shared/shared-list.c:
+	lib-storage: Fixed crash with listing shared mailboxes.
+	[04ee59c96fc9]
+
+	* src/plugins/fts-solr/fts-backend-solr.c:
+	fts-solr: Do only soft commits. Use a cronjob to do hard commits.
+	[91765ba4d534]
+
+	* doc/solr-schema.xml:
+	solr-schema.xml: More updates for Solr v4.x and hopefully with
+	better filters.
+	[0e56484c665a]
+
+	* doc/solr-schema.xml:
+	solr-schema.xml: Replaced EnglishPorterFilterFactory with
+	SnowballPorterFilterFactory
+	[cfd442fcc672]
+
+	* src/anvil/main.c, src/auth/main.c, src/dict/main.c, src/director
+	/director-test.c, src/director/main.c, src/doveadm/main.c, src/imap-
+	urlauth/imap-urlauth-worker.c, src/imap/main.c, src/indexer/indexer-
+	worker.c, src/indexer/indexer.c, src/ipc/main.c, src/lib-master
+	/master-service.c, src/lib-master/master-service.h, src/lmtp/main.c,
+	src/log/main.c, src/plugins/quota/quota-status.c, src/pop3/main.c,
+	src/replication/replicator/replicator.c, src/ssl-params/main.c,
+	src/stats/main.c, src/util/script.c:
+	Call master_service_init_finish() only after all of the
+	initialization is done. This way if the init crashes, the master
+	process will throttle a buggy service.
+	[754d244b8249]
+
+	* src/lib-storage/index/imapc/imapc-list.c:
+	imapc: Fixed list iteration when namespace and backend separators
+	differed.
+	[c012f8df87f9]
+
+	* src/lib-storage/list/mailbox-list-index-iter.c, src/lib-storage/list
+	/mailbox-list-index.h:
+	mailbox_list_index=yes: Fixed list iteration when namespace and
+	backend separators differed.
+	[949ef3625aa2]
+
+	* src/doveadm/client-connection.c, src/doveadm/doveadm-mail-server.c,
+	src/doveadm/dsync/doveadm-dsync.c, src/doveadm/server-connection.c,
+	src/doveadm/server-connection.h:
+	doveadm: Pass through the exit code from doveadm-server to client.
+	[63092465c522]
+
+	* src/doveadm/dsync/dsync-brain-mailbox.c:
+	dsync: Don't try to access mailboxes with no_mail_sync flag enabled.
+	[d8fc9bba98ab]
+
+	* src/doveadm/client-connection.c, src/doveadm/dsync/dsync-brain-
+	mailbox.c, src/doveadm/dsync/dsync-brain.c, src/doveadm/dsync/dsync-
+	ibc-pipe.c, src/doveadm/dsync/dsync-mailbox-export.c,
+	src/doveadm/main.c, src/lib-fs/fs-api.c:
+	Memory leak fixes.
+	[5ed2f41431c4]
+
+2013-06-12  Timo Sirainen  <tss@iki.fi>
+
+	* src/plugins/zlib/zlib-plugin.c:
+	zlib: Enable only for storages that support
+	MAIL_STORAGE_CLASS_FLAG_BINARY_DATA
+	[235be95cb378]
+
+	* src/lib-storage/index/cydir/cydir-storage.c, src/lib-storage/index
+	/dbox-multi/mdbox-storage.c, src/lib-storage/index/dbox-single
+	/sdbox-storage.c, src/lib-storage/index/maildir/maildir-storage.c,
+	src/lib-storage/index/raw/raw-storage.c, src/lib-storage/mail-
+	storage-private.h:
+	lib-storage: Added MAIL_STORAGE_CLASS_FLAG_BINARY_DATA flag for
+	classes.
+	[102d8a59eeda]
+
+	* src/plugins/pop3-migration/pop3-migration-plugin.c:
+	pop3-migration: struct mailbox must be freed before mail_storage is
+	destroyed. Fixes a memory leak where the user wasn't destroyed at
+	all because the mailbox still caused the user to be referenced.
+	[c903fbcbf5d2]
+
+	* src/lib-dict/dict-client.c:
+	lib-dict: Error handling fixes to asynchronous transactions.
+	[db1f217e53b3]
+
+	* src/imap/cmd-delete.c, src/lib-storage/mail-storage.c, src/lib-
+	storage/mail-storage.h:
+	Moved "INBOX can't be deleted" check from lib-storage to IMAP-
+	specific code. Especially "doveadm backup" should be able to delete
+	the INBOX if needed.
+	[db5d4c5164b3]
+
+	* src/lib-storage/list/mailbox-list-fs-iter.c, src/lib-storage/list
+	/mailbox-list-fs.c, src/lib-storage/list/mailbox-list-index-
+	backend.c, src/lib-storage/list/mailbox-list-maildir.c, src/lib-
+	storage/list/mailbox-list-subscriptions.c:
+	lib-storage: Don't crash if backend doesn't have subscriptions file.
+	[4b9a43201a71]
+
+	* src/lib-storage/index/pop3c/pop3c-client.c:
+	pop3c: Don't assert-crash if we can't do DNS lookup.
+	[7057dfeaeb1a]
+
+	* src/lib-storage/index/pop3c/pop3c-mail.c:
+	pop3c: Return Date: header's date also as received and saved date.
+	Mainly to get dsync to not fail.
+	[d447dcc6b611]
+
+	* src/lib-storage/index/pop3c/pop3c-storage.c:
+	pop3c: Allow mailbox_update() for Dovecot's internal fields.
+	[8cf22cba16d4]
+
+	* src/lib-storage/list/mailbox-list-subscriptions.c:
+	pop3c: Don't assert-crash when trying to list subscriptions.
+	[09ac72cdfa8e]
+
+	* src/lib-storage/index/pop3c/pop3c-storage.c:
+	pop3c: Give GUID to the INBOX to avoid crashes with dsync.
+	[7a7d4d8123d5]
+
+	* src/plugins/zlib/zlib-plugin.c:
+	zlib plugin: Removed explicit checks for maildir/sdbox/mdbox.
+	[d212cfb92ce9]
+
+2013-06-09  Timo Sirainen  <tss@iki.fi>
+
+	* doc/man/dovecot.1.in:
+	man: Recent change accidentally changed LGPLv2.1 -> LGPLv2.2,
+	reverted.
+	[45399357008a]
+
+	* src/plugins/acl/acl-backend-vfile.c:
+	acl: Crashfix
+	[921017adcb7b]
+
+	* src/lib-storage/index/shared/shared-storage.c, src/lib-storage/mail-
+	namespace.c:
+	lib-storage: Fixed crashes caused by recent "multiple storages per
+	namespace" change.
+	[73b7fce1643e]
+
+	* src/imap-login/Makefile.am, src/imap-login/client.h, src/imap-login
+	/imap-proxy.c, src/login-common/Makefile.am, src/login-common
+	/client-common-auth.c, src/login-common/client-common.c, src/login-
+	common/client-common.h, src/login-common/main.c,
+	src/pop3-login/Makefile.am, src/pop3-login/pop3-proxy.c:
+	imap/pop3-login: Use libsasl for authenticating to remote IMAP/POP3
+	server. Also passdb lookup can return "proxy_mech" extra field to
+	specify which SASL mechanism to use.
+	[266101990d63]
+
+	* configure.ac, src/Makefile.am, src/lib-dovecot/Makefile.am, src/lib-
+	sasl/Makefile.am, src/lib-sasl/mech-login.c, src/lib-sasl/mech-
+	plain.c, src/lib-sasl/sasl-client-private.h, src/lib-sasl/sasl-
+	client.c, src/lib-sasl/sasl-client.h:
+	Added initial libsasl for implementing client side SASL library.
+	Initially supports PLAIN and LOGIN mechanisms.
+	[1cbff0a8a849]
+
+	* src/plugins/fts-lucene/fts-lucene-plugin.c, src/plugins/fts-lucene
+	/fts-lucene-plugin.h, src/plugins/fts-lucene/lucene-wrapper.cc:
+	fts-lucene: Support normalize setting also without snowball. Added
+	no_snowball setting. Snowball seems to be converting / breaking
+	words down rather annoyingly.
+	[7e54af474ea4]
+
+	* doc/man/doveadm-altmove.1.in, doc/man/doveadm-auth.1.in, doc/man
+	/doveadm-director.1.in, doc/man/doveadm-dump.1.in, doc/man/doveadm-
+	expunge.1.in, doc/man/doveadm-fetch.1.in, doc/man/doveadm-force-
+	resync.1.in, doc/man/doveadm-help.1.in, doc/man/doveadm-import.1.in,
+	doc/man/doveadm-index.1.in, doc/man/doveadm-instance.1.in, doc/man
+	/doveadm-kick.1.in, doc/man/doveadm-log.1.in, doc/man/doveadm-
+	mailbox.1.in, doc/man/doveadm-mount.1.in, doc/man/doveadm-move.1.in,
+	doc/man/doveadm-penalty.1.in, doc/man/doveadm-purge.1.in, doc/man
+	/doveadm-pw.1.in, doc/man/doveadm-quota.1.in, doc/man/doveadm-
+	search-query.7, doc/man/doveadm-search.1.in, doc/man/doveadm-
+	user.1.in, doc/man/doveadm-who.1.in, doc/man/doveadm.1.in,
+	doc/man/doveconf.1.in, doc/man/dovecot-lda.1.in,
+	doc/man/dovecot.1.in, doc/man/dsync.1.in:
+	man pages: Updated v2.1 -> v2.2
+	[1f3f21081ee5]
+
+	* src/lib-http/http-client-connection.c, src/lib-http/http-client-
+	host.c, src/lib-http/http-client-peer.c, src/lib-http/http-client-
+	private.h, src/lib-http/http-client.c, src/lib-http/http-client.h:
+	lib-http: Added soft_connect_timeout_msecs setting to connect to
+	multiple IPs in parallel. Based on patch by Stephan Bosch.
+	[07f72970bf61]
+
+	* src/lib-http/http-client-peer.c:
+	lib-http: If connect to peer failed, don't recreate a new connection
+	to handle pending requests. The new connection would very likely
+	fail as well. Another peer for the host should pick up the requests.
+	[ac78c4c88ba9]
+
+	* src/lib-storage/mail-storage-settings.c, src/lib-storage/mail-
+	storage-settings.h, src/lib-storage/mailbox-list.c:
+	lib-storage: Added mailbox { driver } setting to specify which
+	storage to use.
+	[7e91b0709f06]
+
+	* src/lib-storage/index/dbox-multi/mdbox-storage-rebuild.c, src/lib-
+	storage/mail-namespace.c, src/lib-storage/mail-namespace.h, src/lib-
+	storage/mail-storage.c, src/lib-storage/mail-storage.h:
+	lib-storage: Added support for multiple storages per namespace.
+	[d952b4091425]
+
+	* src/lib-storage/index/imapc/imapc-storage.c:
+	imapc: imapc_storage no longer requires imapc_mailbox_list.
+	[e7ea508f36ca]
+
+	* src/auth/auth-worker-server.c:
+	auth: If worker request has been queued for 60 secs, abort it.
+	[dbf8bbb7e51e]
+
+2013-06-07  Timo Sirainen  <tss@iki.fi>
+
+	* src/auth/auth-request.c:
+	auth: Don't crash in non-plaintext auth if master user login is
+	tried without master passdbs.
+	[ee2a3cf464f4]
+
+	* src/imap-login/client.c:
+	imap-login: If PLAIN mechanism is disabled, advertise LOGINDISABLED
+	always.
+	[bee2dfd00ac5]
+
+2013-06-06  Timo Sirainen  <tss@iki.fi>
+
+	* src/lib/var-expand.c:
+	var_expand(): Fixed initializing variable to %N
+	[e5bd0a7c6a1e]
+
+	* src/lib/test-var-expand.c:
+	var_expand*(): Added small unit tests for %H and %N
+	[561f36451dc2]
+
+	* src/lib/var-expand.c:
+	var_expand*(): Fixed %N to work the same with little and big endian
+	CPUs. Also use 64bit integer to do the MOD from, which should give
+	somewhat better value distribution than with 32bit.
+	[956324a5fc86]
+
+	* src/lib-imap-client/imapc-connection.c:
+	lib-imap-client: When switching ioloops, do it also for the DNS
+	lookup.
+	[8f192f64fd98]
+
+	* src/lib-imap-client/imapc-connection.c:
+	lib-imap-client: Make sure DNS lookups get aborted at disconnect.
+	[612a679aeb03]
+
+	* src/lib-imap-client/imapc-connection.c:
+	lib-imap-client: Don't start another DNS lookup if there's already
+	one ongoing.
+	[d2756f3edb9c]
+
+	* src/doveadm/doveadm-mail-altmove.c, src/doveadm/doveadm-mail.c, src
+	/lib-storage/index/shared/shared-list.c, src/lib-
+	storage/index/shared/shared-storage.c, src/lib-storage/mail-
+	storage.c, src/lib-storage/mailbox-list.c, src/plugins/acl/acl-
+	backend-vfile.c, src/plugins/acl/acl-shared-storage.c:
+	Avoid using mail_namespace.storage directly.
+	[5ba3d95aba9d]
+
+	* src/lib-storage/mailbox-list.c, src/lib-storage/mailbox-list.h:
+	lib-storage: Renamed mailbox_list_get_closest_storage() to
+	..._get_default_storage() This function wasn't previously used by
+	anyone.
+	[3467c60014ec]
+
+	* src/lib-storage/index/imapc/imapc-list.c:
+	imapc: Minor code cleanup
+	[34babd1e2858]
+
+	* src/lib-storage/index/imapc/imapc-list.c, src/lib-
+	storage/index/imapc/imapc-list.h, src/lib-storage/index/imapc/imapc-
+	storage.c, src/lib-storage/index/imapc/imapc-storage.h:
+	imapc: If imapc isn't the inbox=yes namespace, do the login and
+	initial LIST in background.
+	[cdb0e127f010]
+
+	* src/lib-imap-client/imapc-connection.c:
+	lib-imap-client: When server sends BYE before disconnection, log it
+	as the reason.
+	[55624c42bfb8]
+
+	* src/lib-storage/index/imapc/imapc-list.c:
+	imapc: When deleting a mailbox, unselect the current one just in
+	case they're the same.
+	[cc243b748a1c]
+
+	* src/lib-imap-client/imapc-client.c, src/lib-imap-client/imapc-
+	client.h:
+	lib-imap-client: Added support for UNSELECT capability.
+	[2690bcbd37d0]
+
+	* src/lib-imap-client/imapc-connection.c:
+	lib-imap-client: If SELECT/EXAMINE fails, set the connection as not
+	being selected.
+	[375becde3b42]
+
+	* src/lib-storage/index/imapc/imapc-list.c:
+	imapc: Index dirs were being wrongly deleted when imapc_list_prefix
+	was set.
+	[0a88c358cf82]
+
+	* src/lib-http/http-client-connection.c:
+	lib-http: Treat connect() timeouts as retryable errors.
+	[452cecc7e708]
+
+	* src/lib-http/http-client-connection.c:
+	lib-http: Fixed previous patch setting connection connected only
+	after SSL handshake. This just caused crashes. The main point was
+	anyway to include the SSL handshake as part of the
+	connect_timeout_msecs. Apparently the easiest way is to set it
+	immediately connected and delay removing the timeout.
+	[554774a328b9]
+
+2013-06-05  Timo Sirainen  <tss@iki.fi>
+
+	* src/doveadm/dsync/doveadm-dsync.c:
+	dsync: Set broken_char to a control char, so invalid mailbox names
+	are handled properly. The dsync will now fail if there are invalid
+	mailbox names (e.g. valid UTF8 when they should have been mUTF7),
+	instead of simply printing "mailbox doesn't exist" error and exiting
+	with 0.
+	[12a0c383703e]
+
+	* src/lib-storage/mailbox-list.c:
+	lib-storage: mailbox_list_settings.broken_char wasn't escaping 8bit
+	chars correctly.
+	[66a6ff2fdee9]
+
+	* src/lib-imap/imap-utf7.c:
+	lib-imap: Make sure imap_utf7_to_utf8() doesn't access invalid input
+	string out of bounds.
+	[b3c6f97ad3ac]
+
+	* src/lib-imap/imap-utf7.c, src/lib-imap/imap-utf7.h, src/lib-imap
+	/test-imap-utf7.c:
+	lib-imap: Added imap_utf7_is_valid()
+	[a38a7b5fb195]
+
+	* src/doveadm/dsync/doveadm-dsync.c, src/doveadm/dsync/dsync-brain.c,
+	src/doveadm/dsync/dsync-brain.h:
+	dsync: If unexpected changes happened during sync, log a warning and
+	exit with code 2. This was done by v2.1 dsync, but the code got
+	temporarily lost in v2.2.
+	[5593d6129712]
+
+	* src/lib-http/http-client-connection.c, src/lib-http/http-client-
+	private.h:
+	lib-http: After peer has received 100 response, don't add ambiguity
+	timeout anymore. The server should be sending the 100 responses
+	then, and long delays shouldn't be confused with them being missing.
+	[bcf93c30a500]
+
+	* src/lib-http/http-client-connection.c:
+	lib-http: When receiving 1xx response while waiting for 100, don't
+	restart timeout. The 100 response is missing only from HTTP/1.0
+	requests, which also didn't allow any 1xx responses. So if a 1xx
+	response is returned, a 100 response is definitely also coming.
+	[49e7a1c206f1]
+
+	* src/lib-http/http-client-connection.c, src/lib-http/http-client-
+	private.h, src/lib-http/http-client.c, src/lib-http/http-client.h:
+	lib-http: Added connect and request timeout settings.
+	[a551409911f9]
+
+	* src/lib-http/http-client-connection.c:
+	lib-http: Mark the HTTP connection connected only after SSL
+	handshake is finished.
+	[20b065a5299d]
+
+	* src/lib-http/http-client-peer.c:
+	lib-http: Don't create a new HTTP connection when there is already
+	one connecting.
+	[686d2dc1d8dd]
+
+2013-06-01  Timo Sirainen  <tss@iki.fi>
+
+	* src/lda/main.c, src/lib-lda/mail-deliver.c, src/lib-lda/mail-
+	deliver.h, src/lmtp/commands.c:
+	lda/lmtp: If mail delivery fails with tempfail, don't fallback to
+	saving to INBOX.
+	[fa87cd91a11a]
+
+	* src/lib-index/mail-index-transaction-finish.c:
+	lib-index: Avoid memcpy()ing data over itself.
+	[74875424373d]
+
+	* src/lib-fs/fs-api.c:
+	lib-fs: If fs_default_copy() fails, close the copy stream
+	immediately. The stream's origin may already be freed by the time
+	the fs_file_close() is trying to close the stream.
+	[09a57e2f07df]
+
+	* src/lmtp/commands.c:
+	lmtp: Give the DATA input stream a name, so the raw mailbox gets a
+	name and doesn't fail.
+	[05b6cd9220de]
+
+	* src/lib-storage/index/imapc/imapc-list.c:
+	imapc: If imapc_list_prefix is set, don't skip it in filesystem
+	paths. Most importantly this fixes the index path when accessing the
+	imapc_list_prefix mailbox itself (so the indexes won't be in the
+	mail root dir, where they don't get deleted when mailbox is
+	deleted).
+	[7b1152c83e3e]
+
+	* src/lib-storage/mail-storage.c:
+	lib-storage: If mailbox autocreate fails with "already exists",
+	ignore the error. This check was supposed to have been already
+	there, but it was checking for the wrong error.
+	[0faaee4060c5]
+
+	* src/lib-storage/index/imapc/imapc-list.c:
+	imapc: Return correct mailbox list flags for the imapc prefix
+	mailbox itself.
+	[9e50919d7e8b]
+
+	* src/lib-storage/index/imapc/imapc-list.c:
+	imapc: Allow accessing the imapc_list_prefix itself.
+	[92b4183ede17]
+
+	* src/lib-storage/index/imapc/imapc-storage.c, src/lib-storage/index
+	/index-storage.c, src/lib-storage/mail-storage-private.h:
+	imapc: Fixed mailbox deletion.
+	[7af6795f40ed]
+
+	* src/lib-storage/index/imapc/imapc-list.c:
+	imapc: Don't assert-crash when trying to access imapc_list_prefix
+	itself.
+	[cd314aa81805]
+
+	* src/lib-imap-client/imapc-connection.c:
+	lib-imap-client: Ask CAPABILITY again after STARTTLS
+	[3ed452837a8d]
+
+	* src/lib-storage/mailbox-list.c:
+	lib-storage: Empty mailbox name isn't valid.
+	[c4a85c9df948]
+
+	* src/lib/lib-signals.c:
+	Make sure errno is preserved in non-delayed signal handlers. The
+	current code didn't have any signal handlers that modified errno, so
+	this doesn't fix any bugs.
+	[fbeac7272069]
+
+2013-05-31  Timo Sirainen  <tss@iki.fi>
+
+	* src/lib-storage/index/imapc/imapc-settings.c:
+	imapc: Changed imapc_user setting's default to empty.
+	[199769f2979f]
+
+	* src/lib-storage/index/imapc/imapc-storage.c:
+	imapc: Empty imapc_user expands to namespace's owner, or with public
+	namespaces to user itself. The main idea is that with shared
+	namespaces it now expands to the shared username, allowing shared
+	mailbox access via imapc.
+	[6e07d290066c]
+
+	* src/lib-imap-client/imapc-client.c, src/lib-imap-client/imapc-
+	client.h, src/lib-imap-client/imapc-connection.c:
+	lib-imap-client: Connect and command timeouts are now configurable.
+	Also use the same connect timeout for the DNS lookup's timeout.
+	[a6b0a45319ab]
+
+2013-05-31  Stephan Bosch  <stephan@rename-it.nl>
+
+	* src/imap/cmd-urlfetch.c:
+	imap: URLFETCH's URL callback would prematurely uncork the output
+	stream when called for a local URL.
+	[a3b5b762639a]
+
+2013-05-30  Timo Sirainen  <tss@iki.fi>
+
+	* src/imap/cmd-urlfetch.c:
+	imap: URLFETCH's tagged reply wasn't sent while TCP corked.
+	[04b325dbb7bc]
+
+	* src/auth/auth-request.c:
+	auth: Fixed error handling for proxy host dns_lookup()
+	[1cf6ce033a25]
+
+	* src/auth/auth-worker-server.c:
+	Reverted previous wrong commit.
+	[f98fdf0a7ba4]
+
+	* src/auth/auth-worker-server.c:
+	auth: Fixed error handling for proxy host dns_lookup()
+	[b8a175d93ef6]
+
+	* src/lib-storage/list/mailbox-list-index-iter.c, src/lib-storage/list
+	/mailbox-list-index.c, src/lib-storage/list/mailbox-list-index.h:
+	layout=index: Allow mailbox create/delete/rename during mailbox list
+	iteration.
+	[e90e9a7c4ff8]
+
+	* src/lib-index/mail-index-transaction-export.c:
+	lib-index: Fixed a broken assert.
+	[528c64739e39]
+
+2013-05-30  Stephan Bosch  <stephan@rename-it.nl>
+
+	* src/lib-imap-urlauth/imap-urlauth-fetch.c, src/lib-imap-urlauth
+	/imap-urlauth-fetch.h:
+	lib-imap-urlauth: Added API for using the fetch interface with an
+	already parsed IMAP URL object.
+	[fc2ba01feb78]
+
+	* src/imap/cmd-urlfetch.c, src/lib-imap-urlauth/imap-urlauth-fetch.c,
+	src/lib-imap-urlauth/imap-urlauth-fetch.h:
+	imap: Fixed segfault in URLFETCH command. Command would be cleaned
+	up while requests were still pending, causing a segfault once a
+	request finished. Added API determining whether the URLAUTH fetch
+	interface still has pending requests.
+	[8d20f3cde49a]
+
+	* src/lib-imap-urlauth/imap-urlauth-fetch.c:
+	lib-imap-urlauth: Fixed handling of URLAUTH service connection
+	resume after pending local request. This was erroneously removed in
+	an earlier commit.
+	[b2541217f74b]
+
+	* src/lib-imap-urlauth/imap-urlauth-fetch.c:
+	lib-imap-urlauth: Fixed pending_request counter difference between
+	locally and remotely fetched URLAUTHs.
+	[ec5d1686852c]
+
+	* src/lib-imap-urlauth/imap-urlauth-fetch.c:
+	lib-imap-urlauth: Fixed URLAUTH fetch reference counting for when
+	requests are aborted at deinit.
+	[8f09509323cd]
+
+	* src/lib-imap-urlauth/imap-urlauth-connection.c:
+	lib-imap-urlauth: Fixed URLAUTH connection resume after error.
+	[bb221f236d4f]
+
+	* src/lib-imap-urlauth/imap-urlauth-connection.c:
+	lib-imap-urlauth: Made sure callbacks from URLAUTH service
+	connection are executed only once.
+	[3ee64234a125]
+
+2013-05-30  Timo Sirainen  <tss@iki.fi>
+
+	* src/lib/var-expand.c:
+	var_expand(): Added %N, which is the same as %H except based on MD5.
+	This gives a better distribution of values than %H.
+	[4d711ec26847]
+
+2013-05-29  Timo Sirainen  <tss@iki.fi>
+
+	* src/lib-imap/Makefile.am, src/lib-imap/imap-quote.c, src/lib-imap
+	/test-imap-quote.c:
+	lib-imap: imap_append_string_for_humans() returned broken output for
+	whitespace-only input. This returned broken IMAP ENVELOPEs,
+	especially for subjects that contained only whitespace. Since the
+	broken output returned a huge literal, it basically caused the IMAP
+	client to hang.
+	[714320c3cfa6]
+
+	* src/lib-settings/settings-parser.c:
+	lib-settings: Support also "seconds" and "minutes" (instead of just
+	secs/mins)
+	[f294d40a8978]
+
+	* src/doveadm/dsync/dsync-ibc-stream.c:
+	dsync: Fixed dsync handshaking since recent change.
+	[239e0e2098c1]
+
+	* src/lib-index/mail-cache-lookup.c:
+	lib-index: Fixed mail_cache_lookup_headers() when fields were still
+	in memory buffer.
+	[e7c474011934]
+
+	* src/lib-storage/mailbox-list.c:
+	lib-storage: If INDEX=MEMORY, return index root dir as nonexistent
+	instead of as "".
+	[1a565186aee0]
+
+	* src/lib-storage/mailbox-list.c:
+	lib-storage: Reverted previous change after all.
+	[429a8cd829d6]
+
+	* src/lib-storage/mailbox-list.c:
+	lib-storage: Don't try to mkdir() empty directory with INDEX=MEMORY
+	[2306acef767e]
+
+	* src/lib/macros.h:
+	Fixed compiling with gcc v3.3 and older. Perhaps the check needs to
+	be also for somewhat newer versions?..
+	[8307019ce491]
+
+2013-05-28  Timo Sirainen  <tss@iki.fi>
+
+	* src/auth/db-ldap.c:
+	auth ldap: If ldap debug_level>0, log how long initialization took.
+	[c6165b5d6cce]
+
+	* src/auth/auth-request.c:
+	auth: Keep auth_request referenced during DNS lookup. If the
+	underlying auth connection gets closed, there's nothing else
+	referencing the auth_request.
+	[5a223c6d833f]
+
+	* src/doveadm/client-connection.c, src/doveadm/client-connection.h,
+	src/doveadm/doveadm-mail-server.c:
+	doveadm-server: Pass local/remote_ip/port to passdb lookups so
+	proxy_maybe works.
+	[feee5a1527d9]
+
+	* src/auth/auth-request.c:
+	auth: Fixed caching empty userdb result.
+	[c40d67ee9de2]
+
+	* src/auth/userdb-blocking.c:
+	auth: If blocking userdb returns no fields, don't crash when trying
+	to cache the result.
+	[f9f6467001b9]
+
+	* src/lib-fs/fs-api.c, src/lib-fs/fs-api.h:
+	lib-fs: Added fs_get_root_driver()
+	[16183ae98947]
+
+2013-05-27  Timo Sirainen  <tss@iki.fi>
+
+	* src/doveadm/doveadm-dump-index.c, src/lib-storage/index/dbox-common
+	/dbox-save.c, src/lib-storage/index/dbox-common/dbox-save.h, src
+	/lib-storage/index/dbox-common/dbox-storage.c, src/lib-storage/index
+	/dbox-common/dbox-storage.h, src/lib-storage/index/dbox-multi/mdbox-
+	mail.c, src/lib-storage/index/dbox-multi/mdbox-save.c, src/lib-
+	storage/index/dbox-multi/mdbox-storage-rebuild.c, src/lib-
+	storage/index/dbox-multi/mdbox-storage.c, src/lib-storage/index
+	/dbox-multi/mdbox-storage.h, src/lib-storage/index/dbox-single
+	/sdbox-mail.c, src/lib-storage/index/dbox-single/sdbox-save.c, src
+	/lib-storage/index/dbox-single/sdbox-storage.c, src/lib-
+	storage/index/dbox-single/sdbox-storage.h, src/lib-storage/index
+	/dbox-single/sdbox-sync-rebuild.c, src/lib-storage/index/dbox-single
+	/sdbox-sync.c:
+	dbox: Don't cache pop3.uidl|order unless index header indicates
+	there are those. They exist only when doing a migration, so it's
+	pretty wasteful storing "doesn't exist" for all other installations.
+	[967ef2a7fa6f]
+
+	* src/lib-index/mail-index-transaction-update.c, src/lib-index/mail-
+	index.h:
+	lib-index: Added mail_index_ext_resize_hdr()
+	[bd8ec99cf502]
+
+	* src/lib-index/mail-index-sync-ext.c:
+	lib-index: Fixed resizing header when old&new sizes were the same
+	when aligned.
+	[ad78dcbe67be]
+
+	* src/lib-index/mail-index-transaction-export.c:
+	lib-index: Create ext-intro records using the latest sizes, not
+	initial sizes.
+	[a8bc96640cf0]
+
+	* src/lib-storage/index/dbox-common/dbox-mail.c:
+	dbox: Return cached pop3.order=0 as empty string instead to fix
+	sorting problems.
+	[360fd0ccd3dd]
+
+2013-05-26  Timo Sirainen  <tss@iki.fi>
+
+	* src/doveadm/dsync/doveadm-dsync.c, src/doveadm/dsync/dsync-brain-
+	mailbox-tree.c, src/doveadm/dsync/dsync-brain-private.h,
+	src/doveadm/dsync/dsync-brain.c, src/doveadm/dsync/dsync-brain.h,
+	src/doveadm/dsync/dsync-ibc-pipe.c, src/doveadm/dsync/dsync-ibc-
+	stream.c, src/doveadm/dsync/dsync-ibc.h, src/doveadm/dsync/dsync-
+	mailbox-tree-fill.c, src/doveadm/dsync/dsync-mailbox-tree.h:
+	dsync: Added -x parameter to exclude mailboxes from sync. Multiple
+	-x parameters can be added. Giving \flag as parameter means that the
+	mailbox with the given SPECIAL-USE \flag is skipped. For example:
+
+	doveadm sync -x '\All' -x '\Flagged' -x '\Important' mdbox:~/mdbox
+	[4883a8e1db13]
+
+	* src/lib-storage/index/imapc/imapc-save.c:
+	imapc: Fixed assert-crash when copying messages.
+	[0b02dc66e9f1]
+
+	* src/doveadm/dsync/doveadm-dsync.c, src/doveadm/dsync/dsync-brain.c,
+	src/doveadm/dsync/dsync-brain.h:
+	dsync: Small code cleanup.
+	[2d6a3035a6f7]
+
+	* src/lib-storage/index/imapc/imapc-list.c, src/lib-storage/mailbox-
+	list.h:
+	imapc: Pass through SPECIAL-USE LIST flags if imapc is in INBOX
+	namespace.
+	[e0f7eb1c8e42]
+
+	* src/doveadm/doveadm-dump-dbox.c, src/lib-storage/index/dbox-common
+	/dbox-file.h, src/lib-storage/index/dbox-common/dbox-mail.c, src
+	/lib-storage/index/dbox-common/dbox-save.c, src/lib-storage/index
+	/index-mail.c, src/lib-storage/index/index-mail.h:
+	dbox: Added support for POP3 message order.
+	[8ee242b6e417]
+
+	* src/lib-index/mail-cache-lookup.c, src/lib-index/mail-cache-
+	private.h, src/lib-index/mail-cache-transaction.c:
+	lib-index: mail_cache_lookup*() can now return fields recently added
+	with mail_cache_add() Previously it was returning them if they had
+	already been written to dovecot.index.cache, but not if they were
+	still in the in-memory buffer. This avoids caching/parsing the same
+	field multiple times when messages aren't accessed in ascending
+	order (e.g. when sorting messages).
+	[b9a312951881]
+
+2013-05-23  Timo Sirainen  <tss@iki.fi>
+
+	* src/lib-http/http-client.c, src/lib-http/http-client.h:
+	lib-http: Added ssl_cert|key|key_password settings to be passed to
+	ssl-iostream. These are used for sending client's SSL certificate.
+	[af9947e1e5f7]
+
+2013-05-22  Timo Sirainen  <tss@iki.fi>
+
+	* src/login-common/sasl-server.c:
+	*-login: If ssl=required, don't list any SASL mechanisms before
+	STARTTLS.
+	[9d21241fa792]
+
+	* src/imap-login/client.c, src/login-common/client-common-auth.c:
+	*-login: ssl=required should imply disable_plaintext_auth=yes
+	[787ef06c4c95]
+
+	* src/lib-storage/index/index-search.c:
+	lib-storage: Optimize SEARCH_MODSEQ query if it's higher than
+	HIGHESTMODSEQ.
+	[3b6ec8db4166]
+
+	* src/doveadm/dsync/dsync-brain-mailbox-tree.c:
+	dsync: Fixed unsubscribing from mailbox within same session as the
+	mailbox's deletion.
+	[33efc5396e44]
+
+	* src/doveadm/dsync/doveadm-dsync.c:
+	dsync: Don't notify replicator process about successful dsync if the
+	dsync failed.
+	[3984f384257e]
+
+2013-05-21  Timo Sirainen  <tss@iki.fi>
+
+	* src/login-common/client-common-auth.c:
+	*-login: If auth failed with a specified reason, the reason wasn't
+	actually shown to client.
+	[b05b772ff78f]
+
+2013-05-21  Stephan Bosch  <stephan@rename-it.nl>
+
+	* src/imap/cmd-urlfetch.c, src/lib-imap-urlauth/imap-urlauth-fetch.c,
+	src/lib-imap-urlauth/imap-urlauth-fetch.h:
+	lib-imap-urlauth: Fixed deinitialization of the URLAUTH fetch
+	handler. Added reference counting to make sure callbacks will not
+	deinitialize the handler prematurely.
+	[5a36736445e9]
+
+	* src/lib-imap-urlauth/imap-urlauth-fetch.c:
+	lib-imap-urlauth: Fixed resuming in URLAUTH fetch handler. Fixed
+	URLAUTH fetch handler to properly resume the URLAUTH connection,
+	even when it is deinitialized.
+	[9dbcd10cac28]
+
+	* src/lib-imap-urlauth/imap-urlauth-fetch.c, src/lib-imap-urlauth
+	/imap-urlauth-fetch.h:
+	lib-imap-urlauth: Fixed local URLAUTH fetches that didn't
+	immediately finish handling content. Local requests are now also
+	properly counted.
+	[fd35705fbde6]
+
+2013-05-21  Timo Sirainen  <tss@iki.fi>
+
+	* src/auth/db-ldap.c:
+	auth: Fixed crash if LDAP query returned multiple results.
+	[0e324209d885]
+
 2013-05-20  Timo Sirainen  <tss@iki.fi>
+
+	* src/doveadm/dsync/dsync-ibc-stream.c:
+	dsync: Previous have_save_guids change somewhat broke compatibility
+	with earlier dsync versions.
+	[e0156c479a12]
+
+	* src/doveadm/dsync/dsync-brain-mailbox-tree.c, src/doveadm/dsync
+	/dsync-ibc-stream.c, src/doveadm/dsync/dsync-mailbox-tree-fill.c,
+	src/doveadm/dsync/dsync-mailbox-tree.c, src/doveadm/dsync/dsync-
+	mailbox-tree.h:
+	dsync: Fixed unsubscribing from an already deleted mailbox.
+	[9878986a028d]
 
 	* .hgsigs:
 	Added signature for changeset 7aa929edd551
-	[4f76d60ba7dd] [tip]
+	[4f76d60ba7dd]
 
 	* .hgtags:
 	Added tag 2.2.2 for changeset 7aa929edd551
@@ -1967,8 +4596,8 @@
 	ldap auth: Support field values containing DNs to other LDAP records
 	and getting them. For example:
 
-	user_attrs = \ =user=%{ldap:uid}, \ @mail=base(%{ldap:mailDN}),
-	\ =uid=%{ldap:uidNumber@mail}, \ =gid=%{ldap:gidNumber@mail}, \
+	user_attrs = \ =user=%{ldap:uid}, \ @mail=base(%{ldap:mailDN}), \
+	=uid=%{ldap:uidNumber@mail}, \ =gid=%{ldap:gidNumber@mail}, \
 	=home=%{ldap:rootPath@mail}/%d/%n
 
 	This first does the regular lookup, and then does another lookup
@@ -2945,8 +5574,8 @@
 
 	Postfix:
 
-	smtpd_recipient_restrictions = ... check_policy_service
-	unix:private/quota-status
+	smtpd_recipient_restrictions = ... check_policy_service unix:private
+	/quota-status
 	[980be1dc80c2]
 
 2013-02-17  Timo Sirainen  <tss@iki.fi>
@@ -7945,8 +10574,8 @@
 	The reserved areas were acquired by doing (whenever needed):
 	 - lock dovecot.index.cache
 	 - reserve data from dovecot.index.cache for writing, potentially
-	increasing the file size by writing 0 bytes. the reserved area
-	size varies.
+	increasing the file size by writing 0 bytes. the reserved area size
+	varies.
 	 - unlock dovecot.index.cache
 
 	This worked, but if multiple processes were writing to the cache
@@ -8418,9 +11047,8 @@
 	src/plugins/mailbox-alias/mailbox-alias-plugin.h:
 	Added mailbox-alias plugin. Aliases can be created like:
 
-	plugin { mailbox_alias_old = Sent mailbox_alias_new = Sent
-	Messages mailbox_alias_old2 = Sent mailbox_alias_new2 = Sent
-	Items }
+	plugin { mailbox_alias_old = Sent mailbox_alias_new = Sent Messages
+	mailbox_alias_old2 = Sent mailbox_alias_new2 = Sent Items }
 
 	When creating an alias, the original mailbox is also created. The
 	alias itself is a symlink to the original. Deleting an alias deletes
@@ -8487,8 +11115,8 @@
 	lib-storage: Fixed memory leak getting MAILBOX_METADATA_VIRTUAL_SIZE
 	Function virtual_size_add_new forgets to free the 'search_args'
 	object after it searches the mails.
-	--- src/lib-storage/index/index-status.c | 1 + 1 files changed,
-	1 insertions(+), 0 deletions(-)
+	--- src/lib-storage/index/index-status.c | 1 + 1 files changed, 1
+	insertions(+), 0 deletions(-)
 	[3e1f1b6887c8]
 
 2012-09-11  Timo Sirainen  <tss@iki.fi>
@@ -11418,9 +14046,8 @@
 	quota: Support for fs hard limit Support for hard limit is
 	implemented for NFS, but sadly not for other filesystems. If
 	softlimit is not set (it's 0), hardlimit should be used.
-	--- src/plugins/quota/quota-fs.c | 31
-	+++++++++++++++++++++++++++++++ 1 files changed, 31 insertions(+),
-	0 deletions(-)
+	--- src/plugins/quota/quota-fs.c | 31 +++++++++++++++++++++++++++++++
+	1 files changed, 31 insertions(+), 0 deletions(-)
 	[cdba6fec5ddf]
 
 2012-07-16  Timo Sirainen  <tss@iki.fi>
@@ -13956,8 +16583,8 @@
 	SET_STRLIST arrays. This fixes overriding strlist keys in config
 	file filters, e.g.:
 
-	plugin { foo = general } protocol lda { plugin { foo = lda-
-	specific setting } }
+	plugin { foo = general } protocol lda { plugin { foo = lda- specific
+	setting } }
 	[bb8387e6b18f]
 
 	* src/lib-storage/index/maildir/maildir-save.c:
@@ -24756,8 +27383,8 @@
 	- Changeset 9002:
 	http://hg.dovecot.org/dovecot-2.0/diff/9d0037a997f4/src/auth/mech-
 	winbind.c
-	--- src/auth/mech-winbind.c | 2 +- 1 files changed, 1
-	insertions(+), 1 deletions(-)
+	--- src/auth/mech-winbind.c | 2 +- 1 files changed, 1 insertions(+),
+	1 deletions(-)
 	[d8179b523116]
 
 2011-01-16  Timo Sirainen  <tss@iki.fi>
@@ -31825,9 +34452,9 @@
 
 	Example configuration:
 
-	plugin { quota_warning = storage=90%% quota-warning 90 %u }
-	service quota-warning { executable = script /usr/local/bin/quota-
-	warning.sh user = vmail unix_listener quota-warning { } }
+	plugin { quota_warning = storage=90%% quota-warning 90 %u } service
+	quota-warning { executable = script /usr/local/bin/quota- warning.sh
+	user = vmail unix_listener quota-warning { } }
 
 	The quota-warning.sh will be executed with parameters 90 and
 	username.

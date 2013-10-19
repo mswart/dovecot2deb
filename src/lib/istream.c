@@ -92,6 +92,24 @@ int i_stream_get_fd(struct istream *stream)
 	return _stream->fd;
 }
 
+const char *i_stream_get_error(struct istream *stream)
+{
+	struct istream *s;
+
+	/* we'll only return errors for streams that have stream_errno set.
+	   we might be returning unintended error otherwise. */
+	if (stream->stream_errno == 0)
+		return "<no error>";
+
+	for (s = stream; s != NULL; s = s->real_stream->parent) {
+		if (s->stream_errno == 0)
+			break;
+		if (s->real_stream->iostream.error != NULL)
+			return s->real_stream->iostream.error;
+	}
+	return strerror(stream->stream_errno);
+}
+
 void i_stream_close(struct istream *stream)
 {
 	i_stream_close_full(stream, TRUE);
@@ -634,7 +652,8 @@ void i_stream_default_seek_nonseekable(struct istream_private *stream,
 	size_t available;
 
 	if (stream->istream.v_offset > v_offset)
-		i_panic("stream doesn't support seeking backwards");
+		i_panic("stream %s doesn't support seeking backwards",
+			i_stream_get_name(&stream->istream));
 
 	while (stream->istream.v_offset < v_offset) {
 		(void)i_stream_read(&stream->istream);
@@ -746,4 +765,17 @@ struct istream *i_stream_create_error(int stream_errno)
 	i_stream_create(stream, NULL, -1);
 	i_stream_set_name(&stream->istream, "(error)");
 	return &stream->istream;
+}
+
+struct istream *
+i_stream_create_error_str(int stream_errno, const char *fmt, ...)
+{
+	struct istream *input;
+	va_list args;
+
+	va_start(args, fmt);
+	input = i_stream_create_error(stream_errno);
+	io_stream_set_verror(&input->real_stream->iostream, fmt, args);
+	va_end(args);
+	return input;
 }

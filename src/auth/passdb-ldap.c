@@ -47,8 +47,12 @@ ldap_query_save_result(struct ldap_connection *conn,
 	struct db_ldap_result_iterate_context *ldap_iter;
 	const char *name, *const *values;
 
-	ldap_iter = db_ldap_result_iterate_init(conn, ldap_request, res);
+	ldap_iter = db_ldap_result_iterate_init(conn, ldap_request, res, FALSE);
 	while (db_ldap_result_iterate_next(ldap_iter, &name, &values)) {
+		if (values[0] == NULL) {
+			auth_request_set_null_field(auth_request, name);
+			continue;
+		}
 		if (values[1] != NULL) {
 			auth_request_log_warning(auth_request, "ldap",
 				"Multiple values found for '%s', "
@@ -73,8 +77,7 @@ ldap_lookup_finish(struct auth_request *auth_request,
 		passdb_result = PASSDB_RESULT_INTERNAL_FAILURE;
 	} else if (ldap_request->entries == 0) {
 		passdb_result = PASSDB_RESULT_USER_UNKNOWN;
-		auth_request_log_info(auth_request, "ldap",
-				      "unknown user");
+		auth_request_log_unknown_user(auth_request, "ldap");
 	} else if (ldap_request->entries > 1) {
 		auth_request_log_error(auth_request, "ldap",
 			"pass_filter matched multiple objects, aborting");
@@ -162,8 +165,7 @@ ldap_auth_bind_callback(struct ldap_connection *conn,
 			passdb_result = PASSDB_RESULT_PASSWORD_MISMATCH;
 		} else if (ret == LDAP_NO_SUCH_OBJECT) {
 			passdb_result = PASSDB_RESULT_USER_UNKNOWN;
-			auth_request_log_info(auth_request, "ldap",
-					      "unknown user");
+			auth_request_log_unknown_user(auth_request, "ldap");
 		} else {
 			auth_request_log_error(auth_request, "ldap",
 					       "ldap_bind() failed: %s",
@@ -210,8 +212,7 @@ ldap_bind_lookup_dn_fail(struct auth_request *auth_request,
 		passdb_result = PASSDB_RESULT_INTERNAL_FAILURE;
 	else if (request->entries == 0) {
 		passdb_result = PASSDB_RESULT_USER_UNKNOWN;
-		auth_request_log_info(auth_request, "ldap",
-				      "unknown user");
+		auth_request_log_unknown_user(auth_request, "ldap");
 	} else {
 		i_assert(request->entries > 1);
 		auth_request_log_error(auth_request, "ldap",

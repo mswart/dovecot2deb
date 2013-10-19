@@ -1,7 +1,9 @@
 #ifndef HTTP_CLIENT_H
 #define HTTP_CLIENT_H
 
-#include "http-response-parser.h"
+#include "net.h"
+
+#include "http-response.h"
 
 struct http_response;
 
@@ -36,6 +38,8 @@ struct http_client_settings {
 	const char *ssl_ca_dir, *ssl_ca_file, *ssl_ca;
 	const char *ssl_crypto_device;
 	bool ssl_allow_invalid_cert;
+	/* user cert */
+	const char *ssl_cert, *ssl_key, *ssl_key_password;
 
 	const char *rawlog_dir;
 
@@ -54,6 +58,20 @@ struct http_client_settings {
 
 	/* maximum number of attempts for a request */
 	unsigned int max_attempts;
+
+	/* response header limits */
+	struct http_header_limits response_hdr_limits;
+
+	/* max time to wait for HTTP request to finish before retrying
+	   (default = unlimited) */
+	unsigned int request_timeout_msecs;
+	/* max time to wait for connect() (and SSL handshake) to finish before
+	   retrying (default = request_timeout_msecs) */
+	unsigned int connect_timeout_msecs;
+	/* time to wait for connect() (and SSL handshake) to finish for the first
+	   connection before trying the next IP in parallel
+	   (default = 0; wait until current connection attempt finishes) */
+	unsigned int soft_connect_timeout_msecs;
 
 	bool debug;
 };
@@ -76,13 +94,16 @@ http_client_request(struct http_client *client,
 		(http_client_request_callback_t *)callback, context)
 
 void http_client_request_set_port(struct http_client_request *req,
-	unsigned int port);
+	in_port_t port);
 void http_client_request_set_ssl(struct http_client_request *req,
 	bool ssl);
 void http_client_request_set_urgent(struct http_client_request *req);
 
 void http_client_request_add_header(struct http_client_request *req,
 				    const char *key, const char *value);
+void http_client_request_set_date(struct http_client_request *req,
+				    time_t date);
+
 void http_client_request_set_payload(struct http_client_request *req,
 				     struct istream *input, bool sync);
 
@@ -108,5 +129,7 @@ void http_client_switch_ioloop(struct http_client *client);
 
 /* blocks until all currently submitted requests are handled */
 void http_client_wait(struct http_client *client);
+/* Returns number of pending HTTP requests. */
+unsigned int http_client_get_pending_request_count(struct http_client *client);
 
 #endif

@@ -99,29 +99,37 @@ static void test_http_response_parse_valid(void)
 		struct ostream *output;
 		const struct http_response_parse_test *test;
 		struct http_response_parser *parser;
-		struct http_response *response;
+		struct http_response response;
 		const char *response_text, *payload, *error;
-		int ret;
+		unsigned int pos, response_text_len;
+		int ret = 0;
 
 		test = &valid_response_parse_tests[i];
 		response_text = test->response;
-		input = i_stream_create_from_data(response_text, strlen(response_text));
-		parser = http_response_parser_init(input);
+		response_text_len = strlen(response_text);
+		input = test_istream_create_data(response_text, response_text_len);
+		parser = http_response_parser_init(input, NULL);
 
 		test_begin(t_strdup_printf("http response valid [%d]", i));
 
 		payload = NULL;
-		while ((ret=http_response_parse_next(parser, FALSE, &response, &error)) > 0) {
-			if (response->payload != NULL) {
+		for (pos = 0; pos < response_text_len && ret == 0; pos++) {
+			test_istream_set_size(input, pos);
+			ret = http_response_parse_next(parser, FALSE, &response, &error);
+		}
+		test_istream_set_size(input, response_text_len);
+		while (ret > 0) {
+			if (response.payload != NULL) {
 				buffer_set_used_size(payload_buffer, 0);
 				output = o_stream_create_buffer(payload_buffer);
 				test_out("payload receive", 
-					o_stream_send_istream(output, response->payload));
+					o_stream_send_istream(output, response.payload));
 				o_stream_destroy(&output);
 				payload = str_c(payload_buffer);
 			} else {
 				payload = NULL;
 			}
+			ret = http_response_parse_next(parser, FALSE, &response, &error);
 		}
 
 		test_out("parse success", ret == 0);
@@ -129,7 +137,7 @@ static void test_http_response_parse_valid(void)
 		if (ret == 0) {
 			/* verify last response only */
 			test_out(t_strdup_printf("response->status = %d",test->status),
-					response->status == test->status);
+					response.status == test->status);
 			if (payload == NULL || test->payload == NULL) {
 				test_out(t_strdup_printf("response->payload = %s",
 					str_sanitize(payload, 80)),
@@ -165,34 +173,49 @@ static const char *invalid_response_parse_tests[] = {
 	"Cache-Control: private\n\r"
 };
 
+static unsigned char invalid_response_with_nuls[] =
+	"HTTP/1.1 200 OK\r\n"
+	"Server: text\0server\r\n"
+	"\r\n";
+
 unsigned int invalid_response_parse_test_count =
 	N_ELEMENTS(invalid_response_parse_tests);
 
 static void test_http_response_parse_invalid(void)
 {
+	struct http_response_parser *parser;
+	struct http_response response;
+	const char *response_text, *error;
+	struct istream *input;
+	int ret;
 	unsigned int i;
 
 	for (i = 0; i < invalid_response_parse_test_count; i++) T_BEGIN {
-		struct istream *input;
 		const char *test;
-		struct http_response_parser *parser;
-		struct http_response *response;
-		const char *response_text, *error;
-		int ret;
 
 		test = invalid_response_parse_tests[i];
 		response_text = test;
 		input = i_stream_create_from_data(response_text, strlen(response_text));
-		parser = http_response_parser_init(input);
+		parser = http_response_parser_init(input, NULL);
 
 		test_begin(t_strdup_printf("http response invalid [%d]", i));
 
 		while ((ret=http_response_parse_next(parser, FALSE, &response, &error)) > 0);
 
-		test_out("parse failure", ret < 0);
+		test_assert(ret < 0);
 		test_end();
 		http_response_parser_deinit(&parser);
 	} T_END;
+
+	/* parse failure guarantees http_response_header.size equals
+	   strlen(http_response_header.value) */
+	test_begin("http response with NULs");
+	input = i_stream_create_from_data(invalid_response_with_nuls,
+					  sizeof(invalid_response_with_nuls)-1);
+	parser = http_response_parser_init(input, 0);
+	while ((ret=http_response_parse_next(parser, FALSE, &response, &error)) > 0);
+	test_assert(ret < 0);
+	test_end();
 }
 
 int main(void)

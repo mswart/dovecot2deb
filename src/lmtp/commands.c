@@ -222,7 +222,7 @@ static const char *
 address_add_detail(struct client *client, const char *username,
 		   const char *detail)
 {
-	const char *delim = client->set->recipient_delimiter;
+	const char *delim = client->unexpanded_lda_set->recipient_delimiter;
 	const char *domain;
 
 	domain = strchr(username, '@');
@@ -317,7 +317,7 @@ static bool client_proxy_rcpt(struct client *client, const char *address,
 		struct lmtp_proxy_settings proxy_set;
 
 		memset(&proxy_set, 0, sizeof(proxy_set));
-		proxy_set.my_hostname = client->set->hostname;
+		proxy_set.my_hostname = client->my_domain;
 		proxy_set.dns_client_socket_path = dns_client_socket_path;
 		proxy_set.session_id = client->state.session_id;
 		proxy_set.source_ip = client->remote_ip;
@@ -383,11 +383,11 @@ static void rcpt_address_parse(struct client *client, const char *address,
 	*username_r = address;
 	*detail_r = "";
 
-	if (*client->set->recipient_delimiter == '\0')
+	if (*client->unexpanded_lda_set->recipient_delimiter == '\0')
 		return;
 
 	domain = strchr(address, '@');
-	p = strstr(address, client->set->recipient_delimiter);
+	p = strstr(address, client->unexpanded_lda_set->recipient_delimiter);
 	if (p != NULL && (domain == NULL || p < domain)) {
 		/* user+detail@domain */
 		*username_r = t_strdup_until(*username_r, p);
@@ -694,13 +694,7 @@ client_deliver(struct client *client, const struct mail_recipient *rcpt,
 		client_send_line(client, "250 2.0.0 <%s> %s Saved",
 				 rcpt->address, client->state.session_id);
 		ret = 0;
-	} else if (storage == NULL) {
-		/* This shouldn't happen */
-		i_error("BUG: Saving failed to unknown storage");
-		client_send_line(client, ERRSTR_TEMP_MAILBOX_FAIL,
-				 rcpt->address);
-		ret = -1;
-	} else {
+	} else if (storage != NULL) {
 		error = mail_storage_get_last_error(storage, &mail_error);
 		if (mail_error == MAIL_ERROR_NOSPACE) {
 			client_send_line(client, "%s <%s> %s",
@@ -711,6 +705,16 @@ client_deliver(struct client *client, const struct mail_recipient *rcpt,
 			client_send_line(client, "451 4.2.0 <%s> %s",
 					 rcpt->address, error);
 		}
+		ret = -1;
+	} else if (dctx.tempfail_error != NULL) {
+		client_send_line(client, "451 4.2.0 <%s> %s",
+				 rcpt->address, dctx.tempfail_error);
+		ret = -1;
+	} else {
+		/* This shouldn't happen */
+		i_error("BUG: Saving failed to unknown storage");
+		client_send_line(client, ERRSTR_TEMP_MAILBOX_FAIL,
+				 rcpt->address);
 		ret = -1;
 	}
 	return ret;
@@ -771,6 +775,7 @@ static struct istream *client_get_input(struct client *client)
 	inputs[2] = NULL;
 
 	cinput = i_stream_create_concat(inputs);
+	i_stream_set_name(cinput, "<lmtp DATA>");
 	i_stream_unref(&inputs[0]);
 	i_stream_unref(&inputs[1]);
 	return cinput;
@@ -905,7 +910,8 @@ static const char *client_get_added_headers(struct client *client)
 	}
 
 	str_printfa(str, "Received: from %s", client->lhlo);
-	if ((host = net_ip2addr(&client->remote_ip)) != NULL)
+	host = net_ip2addr(&client->remote_ip);
+	if (host[0] != '\0')
 		str_printfa(str, " ([%s])", host);
 	str_printfa(str, "\r\n\tby %s ("PACKAGE_NAME") with LMTP id %s",
 		    client->my_domain, client->state.session_id);

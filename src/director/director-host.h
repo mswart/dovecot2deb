@@ -20,6 +20,9 @@ struct director_host {
 	   it can be ignored (or: it must be ignored to avoid potential command
 	   loops) */
 	unsigned int last_seq;
+	/* use these to avoid infinitely sending SYNCs for directors that
+	   aren't connected in the ring. */
+	unsigned int last_sync_seq, last_sync_seq_counter, last_sync_timestamp;
 	/* Last time host was detected to be down */
 	time_t last_network_failure;
 	time_t last_protocol_failure;
@@ -35,6 +38,8 @@ void director_host_free(struct director_host **host);
 
 void director_host_ref(struct director_host *host);
 void director_host_unref(struct director_host *host);
+
+void director_host_restarted(struct director_host *host);
 
 struct director_host *
 director_host_get(struct director *dir, const struct ip_addr *ip,

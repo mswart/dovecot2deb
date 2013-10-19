@@ -184,11 +184,26 @@ The ACLs are compatible with RFC 4314 (IMAP ACL extension, updated version).
 Unknown ACL letters are complained about, but unknown named ACLs are ignored.
 Named ACLs are mostly intended for future extensions.
 
-Example ACL file:
+Note that the file is rather picky about formatting; using a tab (or multiple
+spaces) instead of a space character between fields may not work.  If you are
+having problems, make sure to check for tabs, extra spaces and other unwanted
+characters.
+
+Examples
+--------
+
+Mailbox owner has all privileges, "timo" has list-read privileges:
 
 ---%<-------------------------------------------------------------------------
 owner lrwstipekxa
-user=timo rl
+user=timo lr
+---%<-------------------------------------------------------------------------
+
+Allow everyone to list and read a public mailbox (public namespace has no
+owner):
+
+---%<-------------------------------------------------------------------------
+anyone lr
 ---%<-------------------------------------------------------------------------
 
 List cache
@@ -198,4 +213,4 @@ List cache
 you manually add/edit 'dovecot-acl' files, you may need to delete the
 'dovecot-acl-list' to get the mailboxes visible.
 
-(This file was created from the wiki on 2013-05-19 04:42)
+(This file was created from the wiki on 2013-09-25 04:42)

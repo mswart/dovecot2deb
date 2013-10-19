@@ -10,6 +10,7 @@
 #include "hash.h"
 #include "aqueue.h"
 #include "str.h"
+#include "time-util.h"
 #include "env-util.h"
 #include "var-expand.h"
 #include "settings.h"
@@ -67,6 +68,7 @@ struct db_ldap_result_iterate_context {
 	const char *val_1_arr[2];
 	string_t *var, *debug;
 
+	bool skip_null_values;
 	bool iter_dn_values;
 };
 
@@ -158,7 +160,8 @@ static void db_ldap_conn_close(struct ldap_connection *conn);
 struct db_ldap_result_iterate_context *
 db_ldap_result_iterate_init_full(struct ldap_connection *conn,
 				 struct ldap_request_search *ldap_request,
-				 LDAPMessage *res, bool iter_dn_values);
+				 LDAPMessage *res, bool skip_null_values,
+				 bool iter_dn_values);
 
 static int deref2str(const char *str)
 {
@@ -555,7 +558,8 @@ static int db_ldap_fields_get_dn(struct ldap_connection *conn,
 	struct db_ldap_result_iterate_context *ldap_iter;
 	const char *name, *const *values;
 
-	ldap_iter = db_ldap_result_iterate_init_full(conn, request, res, TRUE);
+	ldap_iter = db_ldap_result_iterate_init_full(conn, request, res,
+						     TRUE, TRUE);
 	while (db_ldap_result_iterate_next(ldap_iter, &name, &values)) {
 		if (values[1] != NULL) {
 			auth_request_log_warning(auth_request, "ldap",
@@ -825,8 +829,10 @@ static void db_ldap_request_free(struct ldap_request *request, LDAPMessage *res)
 
 		if (srequest->result == res)
 			res = NULL;
-		if (srequest->result != NULL)
+		if (srequest->result != NULL) {
 			ldap_msgfree(srequest->result);
+			srequest->result = NULL;
+		}
 
 		if (array_is_created(&srequest->named_results)) {
 			array_foreach(&srequest->named_results, named_res) {
@@ -835,6 +841,7 @@ static void db_ldap_request_free(struct ldap_request *request, LDAPMessage *res)
 				if (named_res->result != NULL)
 					ldap_msgfree(named_res->result);
 			}
+			array_clear(&srequest->named_results);
 		}
 	}
 	if (res != NULL)
@@ -1096,11 +1103,17 @@ static void db_ldap_set_options(struct ldap_connection *conn)
 
 int db_ldap_connect(struct ldap_connection *conn)
 {
+	bool debug = atoi(conn->set.debug_level) > 0;
+	struct timeval start, end;
 	int ret;
 
 	if (conn->conn_state != LDAP_CONN_STATE_DISCONNECTED)
 		return 0;
 
+	if (debug) {
+		if (gettimeofday(&start, NULL) < 0)
+			memset(&start, 0, sizeof(start));
+	}
 	i_assert(conn->pending_count == 0);
 	if (conn->ld == NULL) {
 		if (conn->set.uris != NULL) {
@@ -1166,6 +1179,12 @@ int db_ldap_connect(struct ldap_connection *conn)
 	} else {
 		if (db_ldap_bind(conn) < 0)
 			return -1;
+	}
+	if (debug) {
+		if (gettimeofday(&end, NULL) == 0) {
+			int msecs = timeval_diff_msecs(&end, &start);
+			i_debug("LDAP initialization took %d msecs", msecs);
+		}
 	}
 
 	db_ldap_get_fd(conn);
@@ -1460,7 +1479,8 @@ get_ldap_fields(struct db_ldap_result_iterate_context *ctx,
 struct db_ldap_result_iterate_context *
 db_ldap_result_iterate_init_full(struct ldap_connection *conn,
 				 struct ldap_request_search *ldap_request,
-				 LDAPMessage *res, bool iter_dn_values)
+				 LDAPMessage *res, bool skip_null_values,
+				 bool iter_dn_values)
 {
 	struct db_ldap_result_iterate_context *ctx;
 	const struct ldap_request_named_result *named_res;
@@ -1472,6 +1492,7 @@ db_ldap_result_iterate_init_full(struct ldap_connection *conn,
 	ctx->pool = pool;
 	ctx->auth_request = ldap_request->request.auth_request;
 	ctx->attr_map = ldap_request->attr_map;
+	ctx->skip_null_values = skip_null_values;
 	ctx->iter_dn_values = iter_dn_values;
 	hash_table_create(&ctx->ldap_attrs, pool, 0, strcase_hash, strcasecmp);
 	if (ctx->auth_request->set->debug)
@@ -1491,9 +1512,10 @@ db_ldap_result_iterate_init_full(struct ldap_connection *conn,
 struct db_ldap_result_iterate_context *
 db_ldap_result_iterate_init(struct ldap_connection *conn,
 			    struct ldap_request_search *ldap_request,
-			    LDAPMessage *res)
+			    LDAPMessage *res, bool skip_null_values)
 {
-	return db_ldap_result_iterate_init_full(conn, ldap_request, res, FALSE);
+	return db_ldap_result_iterate_init_full(conn, ldap_request, res,
+						skip_null_values, FALSE);
 }
 
 static const char *db_ldap_field_get_default(const char *data)
@@ -1628,7 +1650,7 @@ bool db_ldap_result_iterate_next(struct db_ldap_result_iterate_context *ctx,
 	*name_r = field->name;
 	*values_r = db_ldap_result_return_value(ctx, field, ldap_value);
 
-	if ((*values_r)[0] == NULL) {
+	if (ctx->skip_null_values && (*values_r)[0] == NULL) {
 		/* no values. don't confuse the caller with this reply. */
 		return db_ldap_result_iterate_next(ctx, name_r, values_r);
 	}

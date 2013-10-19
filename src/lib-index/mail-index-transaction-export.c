@@ -82,10 +82,12 @@ log_get_hdr_update_buffer(struct mail_index_transaction *t, bool prepend)
 }
 
 static void log_append_ext_intro(struct mail_index_export_context *ctx,
-				 uint32_t ext_id, uint32_t reset_id)
+				 uint32_t ext_id, uint32_t reset_id,
+				 unsigned int *hdr_size_r)
 {
 	struct mail_index_transaction *t = ctx->trans;
 	const struct mail_index_registered_ext *rext;
+	const struct mail_index_ext *ext;
         struct mail_transaction_ext_intro *intro, *resizes;
 	buffer_t *buf;
 	uint32_t idx;
@@ -112,20 +114,31 @@ static void log_append_ext_intro(struct mail_index_export_context *ctx,
 		/* we're resizing the extension. use the resize struct. */
 		intro = &resizes[ext_id];
 
-		i_assert(intro->ext_id == idx);
-		intro->name_size = idx != (uint32_t)-1 ? 0 :
-			strlen(rext->name);
+		i_assert(intro->ext_id == idx || idx == (uint32_t)-1);
+		if (idx != (uint32_t)-1)
+			intro->name_size = 0;
+		else {
+			intro->ext_id = (uint32_t)-1;
+			intro->name_size = strlen(rext->name);
+		}
 		buffer_append(buf, intro, sizeof(*intro));
 	} else {
 		/* generate a new intro structure */
 		intro = buffer_append_space_unsafe(buf, sizeof(*intro));
 		intro->ext_id = idx;
-		intro->hdr_size = rext->hdr_size;
-		intro->record_size = rext->record_size;
-		intro->record_align = rext->record_align;
+		if (idx == (uint32_t)-1) {
+			intro->hdr_size = rext->hdr_size;
+			intro->record_size = rext->record_size;
+			intro->record_align = rext->record_align;
+			intro->name_size = strlen(rext->name);
+		} else {
+			ext = array_idx(&t->view->index->map->extensions, idx);
+			intro->hdr_size = ext->hdr_size;
+			intro->record_size = ext->record_size;
+			intro->record_align = ext->record_align;
+			intro->name_size = 0;
+		}
 		intro->flags = MAIL_TRANSACTION_EXT_INTRO_FLAG_NO_SHRINK;
-		intro->name_size = idx != (uint32_t)-1 ? 0 :
-			strlen(rext->name);
 	}
 	if (reset_id != 0) {
 		/* we're going to reset this extension in this transaction */
@@ -149,11 +162,13 @@ static void log_append_ext_intro(struct mail_index_export_context *ctx,
 	}
 
 	log_append_buffer(ctx, buf, MAIL_TRANSACTION_EXT_INTRO);
+	*hdr_size_r = intro->hdr_size;
 }
 
 static void
 log_append_ext_hdr_update(struct mail_index_export_context *ctx,
-			const struct mail_index_transaction_ext_hdr_update *hdr)
+			  const struct mail_index_transaction_ext_hdr_update *hdr,
+			  unsigned int ext_hdr_size)
 {
 	buffer_t *buf;
 	const unsigned char *data, *mask;
@@ -185,6 +200,7 @@ log_append_ext_hdr_update(struct mail_index_export_context *ctx,
 					u.size = u32.size;
 					buffer_append(buf, &u, sizeof(u));
 				}
+				i_assert(u32.offset + u32.size <= ext_hdr_size);
 				buffer_append(buf, data + u32.offset, u32.size);
 				started = FALSE;
 			}
@@ -204,7 +220,7 @@ mail_transaction_log_append_ext_intros(struct mail_index_export_context *ctx)
 	const struct mail_index_transaction_ext_hdr_update *hdrs;
 	struct mail_transaction_ext_reset ext_reset;
 	unsigned int resize_count, ext_count = 0;
-	unsigned int hdrs_count, reset_id_count, reset_count;
+	unsigned int hdrs_count, reset_id_count, reset_count, hdr_size;
 	uint32_t ext_id, reset_id;
 	const struct mail_transaction_ext_reset *reset;
 	const uint32_t *reset_ids;
@@ -264,7 +280,9 @@ mail_transaction_log_append_ext_intros(struct mail_index_export_context *ctx)
 				reset_id = ext_id < reset_id_count ?
 					reset_ids[ext_id] : 0;
 			}
-			log_append_ext_intro(ctx, ext_id, reset_id);
+			log_append_ext_intro(ctx, ext_id, reset_id, &hdr_size);
+		} else {
+			hdr_size = 0;
 		}
 		if (ext_reset.new_reset_id != 0) {
 			i_assert(ext_id < reset_id_count &&
@@ -274,7 +292,8 @@ mail_transaction_log_append_ext_intros(struct mail_index_export_context *ctx)
 		}
 		if (ext_id < hdrs_count && hdrs[ext_id].alloc_size > 0) {
 			T_BEGIN {
-				log_append_ext_hdr_update(ctx, &hdrs[ext_id]);
+				log_append_ext_hdr_update(ctx, &hdrs[ext_id],
+							  hdr_size);
 			} T_END;
 		}
 	}
@@ -287,7 +306,7 @@ static void log_append_ext_recs(struct mail_index_export_context *ctx,
 	struct mail_index_transaction *t = ctx->trans;
 	const ARRAY_TYPE(seq_array) *updates;
 	const uint32_t *reset_ids;
-	unsigned int ext_id, count, reset_id_count;
+	unsigned int ext_id, count, reset_id_count, hdr_size;
 	uint32_t reset_id;
 
 	if (!array_is_created(&t->ext_reset_ids)) {
@@ -304,7 +323,7 @@ static void log_append_ext_recs(struct mail_index_export_context *ctx,
 			continue;
 
 		reset_id = ext_id < reset_id_count ? reset_ids[ext_id] : 0;
-		log_append_ext_intro(ctx, ext_id, reset_id);
+		log_append_ext_intro(ctx, ext_id, reset_id, &hdr_size);
 
 		log_append_buffer(ctx, updates[ext_id].arr.buffer, type);
 	}
