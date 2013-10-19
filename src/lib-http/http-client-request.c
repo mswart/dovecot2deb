@@ -8,6 +8,7 @@
 #include "istream.h"
 #include "ostream.h"
 #include "http-url.h"
+#include "http-date.h"
 #include "http-response-parser.h"
 #include "http-transfer.h"
 
@@ -68,10 +69,11 @@ http_client_request(struct http_client *client,
 	req->method = p_strdup(pool, method);
 	req->hostname = p_strdup(pool, host);
 	req->port = HTTP_DEFAULT_PORT;
-	req->target = p_strdup(pool, target);
+	req->target = (target == NULL ? "/" : p_strdup(pool, target));
 	req->callback = callback;
 	req->context = context;
 	req->headers = str_new(default_pool, 256);
+	req->date = (time_t)-1;
 
 	req->state = HTTP_REQUEST_STATE_NEW;
 	return req;
@@ -91,6 +93,11 @@ void http_client_request_unref(struct http_client_request **_req)
 
 	if (--req->refcount > 0)
 		return;
+
+	if (req->destroy_callback != NULL) {
+		req->destroy_callback(req->destroy_context);
+		req->destroy_callback = NULL;
+	}
 
 	/* only decrease pending request counter if this request was submitted */
 	if (req->state > HTTP_REQUEST_STATE_NEW)
@@ -114,7 +121,7 @@ void http_client_request_unref(struct http_client_request **_req)
 }
 
 void http_client_request_set_port(struct http_client_request *req,
-	unsigned int port)
+	in_port_t port)
 {
 	i_assert(req->state == HTTP_REQUEST_STATE_NEW);
 	req->port = port;
@@ -144,7 +151,39 @@ void http_client_request_add_header(struct http_client_request *req,
 				    const char *key, const char *value)
 {
 	i_assert(req->state == HTTP_REQUEST_STATE_NEW);
+	/* mark presence of special headers */
+	switch (key[0]) {
+	case 'c': case 'C':
+		if (strcasecmp(key, "Connection") == 0)
+			req->have_hdr_connection = TRUE;
+		else 	if (strcasecmp(key, "Content-Length") == 0)
+			req->have_hdr_body_spec = TRUE;
+		break;
+	case 'd': case 'D':
+		if (strcasecmp(key, "Date") == 0)
+			req->have_hdr_date = TRUE;
+		break;
+	case 'e': case 'E':
+		if (strcasecmp(key, "Expect") == 0)
+			req->have_hdr_expect = TRUE;
+		break;
+	case 'h': case 'H':
+		if (strcasecmp(key, "Host") == 0)
+			req->have_hdr_host = TRUE;
+		break;
+	case 't': case 'T':
+		if (strcasecmp(key, "Transfer-Encoding") == 0)
+			req->have_hdr_body_spec = TRUE;
+		break;
+	}
 	str_printfa(req->headers, "%s: %s\r\n", key, value);
+}
+
+void http_client_request_set_date(struct http_client_request *req,
+				    time_t date)
+{
+	i_assert(req->state == HTTP_REQUEST_STATE_NEW);
+	req->date = date;
 }
 
 void http_client_request_set_payload(struct http_client_request *req,
@@ -183,6 +222,10 @@ static void http_client_request_do_submit(struct http_client_request *req)
 	struct http_client_host *host;
 
 	i_assert(req->state == HTTP_REQUEST_STATE_NEW);
+
+	/* use submission date if no date is set explicitly */
+	if (req->date == (time_t)-1)
+		req->date = ioloop_time;
 	
 	host = http_client_host_get(req->client, req->hostname);
 	req->state = HTTP_REQUEST_STATE_QUEUED;
@@ -210,7 +253,8 @@ http_client_request_finish_payload_out(struct http_client_request *req)
 	}
 	req->state = HTTP_REQUEST_STATE_WAITING;
 	req->conn->output_locked = FALSE;
-	http_client_request_debug(req, "Sent all payload");
+
+	http_client_request_debug(req, "Finished sending payload");
 }
 
 static int
@@ -299,15 +343,29 @@ int http_client_request_finish_payload(struct http_client_request **_req)
 	return http_client_request_continue_payload(_req, NULL, 0);
 }
 
+static void http_client_request_payload_input(struct http_client_request *req)
+{	
+	struct http_client_connection *conn = req->conn;
+
+	if (conn->io_req_payload != NULL)
+		io_remove(&conn->io_req_payload);
+
+	(void)http_client_connection_output(conn);
+}
+
 int http_client_request_send_more(struct http_client_request *req,
 				  const char **error_r)
 {
 	struct http_client_connection *conn = req->conn;
 	struct ostream *output = req->payload_output;
 	off_t ret;
+	int fd;
 
 	i_assert(req->payload_input != NULL);
 	i_assert(req->payload_output != NULL);
+
+	if (conn->io_req_payload != NULL)
+		io_remove(&conn->io_req_payload);
 
 	/* chunked ostream needs to write to the parent stream's buffer */
 	o_stream_set_max_buffer_size(output, IO_BLOCK_SIZE);
@@ -318,15 +376,17 @@ int http_client_request_send_more(struct http_client_request *req,
 		errno = req->payload_input->stream_errno;
 		*error_r = t_strdup_printf("read(%s) failed: %m",
 					   i_stream_get_name(req->payload_input));
+		ret = -1;
 	} else if (output->stream_errno != 0) {
 		errno = output->stream_errno;
 		*error_r = t_strdup_printf("write(%s) failed: %m",
 					   o_stream_get_name(output));
+		ret = -1;
 	} else {
 		i_assert(ret >= 0);
 	}
 
-	if (!i_stream_have_bytes_left(req->payload_input)) {
+	if (ret < 0 || i_stream_is_eof(req->payload_input)) {
 		if (!req->payload_chunked &&
 			req->payload_input->v_offset - req->payload_offset != req->payload_size) {
 			i_error("stream input size changed"); //FIXME
@@ -340,11 +400,18 @@ int http_client_request_send_more(struct http_client_request *req,
 		} else {
 			http_client_request_finish_payload_out(req);
 		}
-
-	} else {
+	} else if (i_stream_get_data_size(req->payload_input) > 0) {
+		/* output is blocking */
 		conn->output_locked = TRUE;
 		o_stream_set_flush_pending(output, TRUE);
 		http_client_request_debug(req, "Partially sent payload");
+	} else {
+		/* input is blocking */
+		fd = i_stream_get_fd(req->payload_input);
+		conn->output_locked = TRUE;	
+		i_assert(fd >= 0);
+		conn->io_req_payload = io_add
+			(fd, IO_READ, http_client_request_payload_input, req);
 	}
 	return ret < 0 ? -1 : 0;
 }
@@ -359,38 +426,59 @@ static int http_client_request_send_real(struct http_client_request *req,
 	int ret = 0;
 
 	i_assert(!req->conn->output_locked);
+	i_assert(req->payload_output == NULL);
 
+	/* create request line */
 	str_append(rtext, req->method);
 	str_append(rtext, " ");
 	str_append(rtext, req->target);
 	str_append(rtext, " HTTP/1.1\r\n");
-	str_append(rtext, "Host: ");
-	str_append(rtext, req->hostname);
-	if ((!req->ssl &&req->port != HTTP_DEFAULT_PORT) ||
-		(req->ssl && req->port != HTTPS_DEFAULT_PORT)) {
-		str_printfa(rtext, ":%u", req->port);
+
+	/* create special headers implicitly if not set explicitly using
+	   http_client_request_add_header() */
+	if (!req->have_hdr_host) {
+		str_append(rtext, "Host: ");
+		str_append(rtext, req->hostname);
+		if ((!req->ssl &&req->port != HTTP_DEFAULT_PORT) ||
+			(req->ssl && req->port != HTTPS_DEFAULT_PORT)) {
+			str_printfa(rtext, ":%u", req->port);
+		}
+		str_append(rtext, "\r\n");
 	}
-	str_append(rtext, "\r\n");
-	if (req->payload_sync) {
+	if (!req->have_hdr_date) {
+		str_append(rtext, "Date: ");
+		str_append(rtext, http_date_create(req->date));
+		str_append(rtext, "\r\n");
+	}
+	if (!req->have_hdr_expect && req->payload_sync) {
 		str_append(rtext, "Expect: 100-continue\r\n");
 	}
 	if (req->payload_chunked) {
-		str_append(rtext, "Transfer-Encoding: chunked\r\n");
+		// FIXME: can't do this for a HTTP/1.0 server
+		if (!req->have_hdr_body_spec)
+			str_append(rtext, "Transfer-Encoding: chunked\r\n");
 		req->payload_output =
 			http_transfer_chunked_ostream_create(output);
 	} else if (req->payload_input != NULL) {
 		/* send Content-Length if we have specified a payload,
 		   even if it's 0 bytes. */
-		str_printfa(rtext, "Content-Length: %"PRIuUOFF_T"\r\n",
-			    req->payload_size);
+		if (!req->have_hdr_body_spec) {
+			str_printfa(rtext, "Content-Length: %"PRIuUOFF_T"\r\n",
+				req->payload_size);
+		}
 		req->payload_output = output;
 		o_stream_ref(output);
 	}
+	if (!req->have_hdr_connection)
+		str_append(rtext, "Connection: Keep-Alive\r\n");
 
+	/* request line + implicit headers */
 	iov[0].iov_base = str_data(rtext);
-	iov[0].iov_len = str_len(rtext);
+	iov[0].iov_len = str_len(rtext);	
+	/* explicit headers */
 	iov[1].iov_base = str_data(req->headers);
 	iov[1].iov_len = str_len(req->headers);
+	/* end of header */
 	iov[2].iov_base = "\r\n";
 	iov[2].iov_len = 2;
 
@@ -410,6 +498,7 @@ static int http_client_request_send_real(struct http_client_request *req,
 				ret = -1;
 		} else {
 			http_client_request_debug(req, "Waiting for 100-continue");
+			conn->output_locked = TRUE;
 		}
 	} else {
 		req->state = HTTP_REQUEST_STATE_WAITING;
@@ -464,9 +553,7 @@ http_client_request_send_error(struct http_client_request *req,
 	if (callback != NULL) {
 		struct http_response response;
 
-		memset(&response, 0, sizeof(response));
-		response.status = status;
-		response.reason = error;
+		http_response_init(&response, status, error);
 		(void)callback(&response, req->context);
 	}
 }
@@ -541,9 +628,6 @@ void http_client_request_finish(struct http_client_request **_req)
 	req->callback = NULL;
 	req->state = HTTP_REQUEST_STATE_FINISHED;
 
-	if (req->destroy_callback != NULL)
-		req->destroy_callback(req->destroy_context);
-
 	if (req->payload_wait && req->client->ioloop != NULL)
 		io_loop_stop(req->client->ioloop);
 	http_client_request_unref(_req);
@@ -553,7 +637,7 @@ void http_client_request_redirect(struct http_client_request *req,
 	unsigned int status, const char *location)
 {
 	struct http_url *url;
-	const char *error;
+	const char *error, *target;
 	unsigned int newport;
 
 	/* parse URL */
@@ -591,51 +675,23 @@ void http_client_request_redirect(struct http_client_request *req,
 		}
 	}
 
-	/* rewind payload stream */
-	if (req->payload_input != NULL && req->payload_size > 0 && status != 303) {
-		if (req->payload_input->v_offset != req->payload_offset &&
-			!req->payload_input->seekable) {
-			http_client_request_error(req,
-				HTTP_CLIENT_REQUEST_ERROR_ABORTED,
-				"Redirect failed: Cannot resend payload; stream is not seekable");
-			return;
-		} else {
-			i_stream_seek(req->payload_input, req->payload_offset);
-		}
-	}
+	/* drop payload output stream from previous attempt */
+	if (req->payload_output != NULL)
+		o_stream_unref(&req->payload_output);
 
 	newport = (url->have_port ? url->port : (url->have_ssl ? 443 : 80));
+	target = http_url_create_target(url);
 
-	http_client_request_debug(req, "Redirecting to http://%s:%u%s",
-		url->host_name, newport, url->path);
+	http_client_request_debug(req, "Redirecting to http%s://%s:%u%s",
+		(url->have_ssl ? "s" : ""), url->host_name, newport, target);
 
 	// FIXME: handle literal IP specially (avoid duplicate parsing)
 	req->host = NULL;
 	req->conn = NULL;
 	req->hostname = p_strdup(req->pool, url->host_name);
 	req->port = newport;
-	req->target = p_strdup(req->pool, url->path);
+	req->target = p_strdup(req->pool, target);
 	req->ssl = url->have_ssl;
-
-	/* https://tools.ietf.org/html/draft-ietf-httpbis-p2-semantics-21
-	      Section-7.4.4
-	
-	   -> A 303 `See Other' redirect status response is handled a bit differently.
-	   Basically, the response content is located elsewhere, but the original
-	   (POST) request is handled already.
-	 */
-	if (status == 303 && strcasecmp(req->method, "HEAD") != 0 &&
-		strcasecmp(req->method, "GET") != 0) {
-		// FIXME: should we provide the means to skip this step? The original
-		// request was already handled at this point.
-		req->method = p_strdup(req->pool, "GET");
-
-		/* drop payload */
-		if (req->payload_input != NULL)
-			i_stream_unref(&req->payload_input);
-		req->payload_size = 0;
-		req->payload_offset = 0;
-	}
 
 	/* https://tools.ietf.org/html/draft-ietf-httpbis-p2-semantics-21
 	      Section-7.4.4
@@ -691,6 +747,10 @@ void http_client_request_resubmit(struct http_client_request *req)
 			i_stream_seek(req->payload_input, req->payload_offset);
 		}
 	}
+
+	/* drop payload output stream from previous attempt */
+	if (req->payload_output != NULL)
+		o_stream_unref(&req->payload_output);
 
 	req->conn = NULL;
 	req->peer = NULL;

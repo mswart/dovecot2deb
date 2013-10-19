@@ -204,13 +204,70 @@ static int
 pop3c_mailbox_update(struct mailbox *box,
 		     const struct mailbox_update *update ATTR_UNUSED)
 {
-	mail_storage_set_error(box->storage, MAIL_ERROR_NOTPOSSIBLE,
-			       "POP3 mailbox update isn't supported");
-	return -1;
+	if (!guid_128_is_empty(update->mailbox_guid) ||
+	    update->uid_validity != 0 || update->min_next_uid != 0 ||
+	    update->min_first_recent_uid != 0) {
+		mail_storage_set_error(box->storage, MAIL_ERROR_NOTPOSSIBLE,
+				       "POP3 mailbox update isn't supported");
+	}
+	return index_storage_mailbox_update(box, update);
+}
+
+static int pop3c_mailbox_get_metadata(struct mailbox *box,
+				      enum mailbox_metadata_items items,
+				      struct mailbox_metadata *metadata_r)
+{
+	if ((items & MAILBOX_METADATA_GUID) != 0) {
+		/* a bit ugly way to do this, but better than nothing for now.
+		   FIXME: if indexes are enabled, keep this there. */
+		mail_generate_guid_128_hash(box->name, metadata_r->guid);
+		items &= ~MAILBOX_METADATA_GUID;
+	}
+	if (items != 0) {
+		if (index_mailbox_get_metadata(box, items, metadata_r) < 0)
+			return -1;
+	}
+	return 0;
 }
 
 static void pop3c_notify_changes(struct mailbox *box ATTR_UNUSED)
 {
+}
+
+static struct mail_save_context *
+pop3c_save_alloc(struct mailbox_transaction_context *t)
+{
+	struct mail_save_context *ctx;
+
+	ctx = i_new(struct mail_save_context, 1);
+	ctx->transaction = t;
+	return ctx;
+}
+
+static int
+pop3c_save_begin(struct mail_save_context *ctx,
+		 struct istream *input ATTR_UNUSED)
+{
+	mail_storage_set_error(ctx->transaction->box->storage,
+		MAIL_ERROR_NOTPOSSIBLE, "POP3 doesn't support saving mails");
+	return -1;
+}
+
+static int pop3c_save_continue(struct mail_save_context *ctx ATTR_UNUSED)
+{
+	return -1;
+}
+
+static int pop3c_save_finish(struct mail_save_context *ctx)
+{
+	index_save_context_free(ctx);
+	return -1;
+}
+
+static void
+pop3c_save_cancel(struct mail_save_context *ctx)
+{
+	index_save_context_free(ctx);
 }
 
 static bool pop3c_storage_is_inconsistent(struct mailbox *box)
@@ -251,7 +308,7 @@ struct mailbox pop3c_mailbox = {
 		index_storage_mailbox_delete,
 		index_storage_mailbox_rename,
 		index_storage_get_status,
-		index_mailbox_get_metadata,
+		pop3c_mailbox_get_metadata,
 		index_storage_set_subscribed,
 		index_storage_attribute_set,
 		index_storage_attribute_get,
@@ -274,11 +331,11 @@ struct mailbox pop3c_mailbox = {
 		index_storage_search_deinit,
 		index_storage_search_next_nonblock,
 		index_storage_search_next_update_seq,
-		NULL,
-		NULL,
-		NULL,
-		NULL,
-		NULL,
+		pop3c_save_alloc,
+		pop3c_save_begin,
+		pop3c_save_continue,
+		pop3c_save_finish,
+		pop3c_save_cancel,
 		mail_storage_copy,
 		NULL,
 		NULL,

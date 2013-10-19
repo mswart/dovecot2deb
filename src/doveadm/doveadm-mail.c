@@ -107,6 +107,7 @@ static int
 cmd_purge_run(struct doveadm_mail_cmd_context *ctx, struct mail_user *user)
 {
 	struct mail_namespace *ns;
+	struct mail_storage *storage;
 	int ret = 0;
 
 	for (ns = user->namespaces; ns != NULL; ns = ns->next) {
@@ -114,10 +115,11 @@ cmd_purge_run(struct doveadm_mail_cmd_context *ctx, struct mail_user *user)
 		    ns->alias_for != NULL)
 			continue;
 
-		if (mail_storage_purge(ns->storage) < 0) {
+		storage = mail_namespace_get_default_storage(ns);
+		if (mail_storage_purge(storage) < 0) {
 			i_error("Purging namespace '%s' failed: %s", ns->prefix,
-				mail_storage_get_last_error(ns->storage, NULL));
-			doveadm_mail_failed_storage(ctx, ns->storage);
+				mail_storage_get_last_error(storage, NULL));
+			doveadm_mail_failed_storage(ctx, storage);
 			ret = -1;
 		}
 	}
@@ -268,10 +270,14 @@ doveadm_mail_next_user(struct doveadm_mail_cmd_context *ctx,
 		       const struct mail_storage_service_input *input,
 		       const char **error_r)
 {
-	const char *error;
+	const char *error, *ip;
 	int ret;
 
-	i_set_failure_prefix("doveadm(%s): ", input->username);
+	ip = net_ip2addr(&input->remote_ip);
+	if (ip[0] == '\0')
+		i_set_failure_prefix("doveadm(%s): ", input->username);
+	else
+		i_set_failure_prefix("doveadm(%s,%s): ", ip, input->username);
 
 	/* see if we want to execute this command via (another)
 	   doveadm server */
@@ -319,6 +325,7 @@ int doveadm_mail_single_user(struct doveadm_mail_cmd_context *ctx,
 {
 	i_assert(input->username != NULL);
 
+	ctx->cur_client_ip = input->remote_ip;
 	ctx->cur_username = input->username;
 	ctx->storage_service_input = *input;
 	ctx->storage_service = mail_storage_service_init(master_service, NULL,
@@ -340,8 +347,8 @@ doveadm_mail_all_users(struct doveadm_mail_cmd_context *ctx, char *argv[],
 		       const char *wildcard_user)
 {
 	struct mail_storage_service_input input;
-	unsigned int user_idx, user_count, interval, n;
-	const char *user, *error;
+	unsigned int user_idx;
+	const char *ip, *user, *error;
 	int ret;
 
 	ctx->service_flags |= MAIL_STORAGE_SERVICE_FLAG_USERDB_LOOKUP;
@@ -357,10 +364,7 @@ doveadm_mail_all_users(struct doveadm_mail_cmd_context *ctx, char *argv[],
 
 	ctx->v.init(ctx, (const void *)argv);
 
-	user_count = mail_storage_service_all_init(ctx->storage_service);
-	n = user_count / 10000;
-	for (interval = 10; n > 0 && interval < 1000; interval *= 10)
-		n /= 10;
+	mail_storage_service_all_init(ctx->storage_service);
 
 	if (hook_doveadm_mail_init != NULL)
 		hook_doveadm_mail_init(ctx);
@@ -384,8 +388,8 @@ doveadm_mail_all_users(struct doveadm_mail_cmd_context *ctx, char *argv[],
 		if (ret == -1)
 			break;
 		if (doveadm_verbose) {
-			if (++user_idx % interval == 0) {
-				printf("\r%d / %d", user_idx, user_count);
+			if (++user_idx % 100 == 0) {
+				printf("\r%d", user_idx);
 				fflush(stdout);
 			}
 		}
@@ -397,7 +401,11 @@ doveadm_mail_all_users(struct doveadm_mail_cmd_context *ctx, char *argv[],
 	}
 	if (doveadm_verbose)
 		printf("\n");
-	i_set_failure_prefix("doveadm: ");
+	ip = net_ip2addr(&ctx->cur_client_ip);
+	if (ip[0] == '\0')
+		i_set_failure_prefix("doveadm: ");
+	else
+		i_set_failure_prefix("doveadm(%s): ", ip);
 	if (ret < 0) {
 		i_error("Failed to iterate through some users");
 		ctx->exit_code = EX_TEMPFAIL;
@@ -690,10 +698,14 @@ static struct doveadm_mail_cmd *mail_commands[] = {
 	&cmd_expunge,
 	&cmd_search,
 	&cmd_fetch,
+	&cmd_flags_add,
+	&cmd_flags_remove,
+	&cmd_flags_replace,
 	&cmd_import,
 	&cmd_index,
 	&cmd_altmove,
 	&cmd_copy,
+	&cmd_deduplicate,
 	&cmd_move,
 	&cmd_mailbox_list,
 	&cmd_mailbox_create,

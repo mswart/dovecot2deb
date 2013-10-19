@@ -107,6 +107,14 @@ static int sdbox_sync_index(struct sdbox_sync_context *ctx)
 	hdr = mail_index_get_header(ctx->sync_view);
 	if (hdr->uid_validity == 0) {
 		/* newly created index file */
+		if (hdr->next_uid == 1) {
+			/* could be just a race condition where we opened the
+			   mailbox between mkdir and index creation. fix this
+			   silently. */
+			if (sdbox_mailbox_create_indexes(box, NULL, ctx->trans) < 0)
+				return -1;
+			return 1;
+		}
 		mail_storage_set_critical(box->storage,
 			"sdbox %s: Broken index: missing UIDVALIDITY",
 			mailbox_get_path(box));
@@ -164,10 +172,11 @@ sdbox_refresh_header(struct sdbox_mailbox *mbox, bool retry, bool log_error)
 {
 	struct mail_index_view *view;
 	struct sdbox_index_header hdr;
+	bool need_resize;
 	int ret;
 
 	view = mail_index_view_open(mbox->box.index);
-	ret = sdbox_read_header(mbox, &hdr, log_error);
+	ret = sdbox_read_header(mbox, &hdr, log_error, &need_resize);
 	mail_index_view_close(&view);
 
 	if (ret < 0 && retry) {

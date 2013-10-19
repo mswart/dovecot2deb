@@ -142,7 +142,7 @@
 #endif
 
 /* Macros to provide type safety for callback functions' context parameters */
-#ifdef __GNUC__
+#if (__GNUC__ > 3 || (__GNUC__ == 3 && __GNUC_MINOR__ > 3))
 #  define CALLBACK_TYPECHECK(callback, type) \
 	(COMPILE_ERROR_IF_TRUE(!__builtin_types_compatible_p( \
 		typeof(&callback), type)) ? 1 : 0)
@@ -199,7 +199,7 @@
 #endif
 
 #define i_close_fd(fd) STMT_START {  \
-	if (unlikely(close_keep_errno(fd)) < 0) \
+	if (unlikely(close_keep_errno(fd) < 0)) \
 		i_error("close(%d[%s:%d]) failed: %m", \
 			*(fd), __FILE__, __LINE__); \
 	} STMT_END

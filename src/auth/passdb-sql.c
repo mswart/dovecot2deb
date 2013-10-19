@@ -45,7 +45,11 @@ static void sql_query_save_results(struct sql_result *result,
 		name = sql_result_get_field_name(result, i);
 		value = sql_result_get_field_value(result, i);
 
-		if (*name != '\0' && value != NULL) {
+		if (*name == '\0')
+			;
+		else if (value == NULL)
+			auth_request_set_null_field(auth_request, name);
+		else {
 			auth_request_set_field(auth_request, name, value,
 				module->conn->set.default_pass_scheme);
 		}
@@ -81,7 +85,7 @@ static void sql_query_callback(struct sql_result *result,
 				module->conn->set.password_query);
 		}
 	} else if (ret == 0) {
-		auth_request_log_info(auth_request, "sql", "unknown user");
+		auth_request_log_unknown_user(auth_request, "sql");
 		passdb_result = PASSDB_RESULT_USER_UNKNOWN;
 	} else {
 		sql_query_save_results(result, sql_request);

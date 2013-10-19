@@ -7,6 +7,8 @@
 #include "userdb.h"
 #include "passdb.h"
 
+#define AUTH_REQUEST_USER_KEY_IGNORE " "
+
 struct auth_client_connection;
 
 enum auth_request_state {
@@ -121,6 +123,7 @@ struct auth_request {
 	unsigned int prefer_plain_credentials:1;
 	unsigned int in_delayed_failure_queue:1;
 	unsigned int removed_from_handler:1;
+	unsigned int snapshot_has_userdb_reply:1;
 	/* each passdb lookup can update the current success-status using the
 	   result_* rules. the authentication succeeds only if this is TRUE
 	   at the end. mechanisms that don't require passdb, but do a passdb
@@ -140,8 +143,9 @@ extern unsigned int auth_request_state_count[AUTH_REQUEST_STATE_MAX];
 #define AUTH_REQUEST_VAR_TAB_USER_IDX 0
 #define AUTH_REQUEST_VAR_TAB_USERNAME_IDX 1
 #define AUTH_REQUEST_VAR_TAB_DOMAIN_IDX 2
-#define AUTH_REQUEST_VAR_TAB_COUNT 23
-extern const struct var_expand_table auth_request_var_expand_static_tab[];
+#define AUTH_REQUEST_VAR_TAB_COUNT 25
+extern const struct var_expand_table
+auth_request_var_expand_static_tab[AUTH_REQUEST_VAR_TAB_COUNT+1];
 
 struct auth_request *
 auth_request_new(const struct mech_module *mech);
@@ -192,6 +196,7 @@ bool auth_request_set_login_username(struct auth_request *request,
 void auth_request_set_field(struct auth_request *request,
 			    const char *name, const char *value,
 			    const char *default_scheme) ATTR_NULL(4);
+void auth_request_set_null_field(struct auth_request *request, const char *name);
 void auth_request_set_field_keyvalue(struct auth_request *request,
 				     const char *field,
 				     const char *default_scheme) ATTR_NULL(3);
@@ -240,6 +245,8 @@ void auth_request_log_warning(struct auth_request *auth_request,
 void auth_request_log_error(struct auth_request *auth_request,
 			    const char *subsystem,
 			    const char *format, ...) ATTR_FORMAT(3, 4);
+void auth_request_log_unknown_user(struct auth_request *auth_request,
+				   const char *subsystem);
 
 void auth_request_verify_plain_callback(enum passdb_result result,
 					struct auth_request *request);

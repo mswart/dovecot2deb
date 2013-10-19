@@ -1,3 +1,77 @@
+v2.2.6 2013-09-25  Timo Sirainen <tss@iki.fi>
+
+	* acl: If public/shared namespace has a shared subscriptions file for
+	  all users, don't list subscription entries that are not visible to
+	  the user accessing it.
+
+	+ doveadm: Added "auth lookup" command for doing passdb lookup.
+	+ login_log_format_elements: Added %{orig_user}, %{orig_username}
+	  and %{orig_domain} expanding to the username exactly as sent by
+	  the client (before any changes auth process made).
+	+ Added ssl_prefer_server_ciphers setting.
+	+ auth_verbose_passwords: Log the password also for unknown users.
+	+ Linux: Added optional support for SO_REUSEPORT with
+	  inet_listener { reuse_port=yes }
+	- director: v2.2.5 changes caused "SYNC lost" errors
+	- dsync: Many fixes and error handling improvements
+	- doveadm -A: Don't waste CPU by doing a separate config lookup
+	  for each user
+	- Long-running ssl-params process no longer prevents Dovecot restart
+	- mbox: Fixed mailbox_list_index=yes to work correctly
+
+v2.2.5 2013-08-05  Timo Sirainen <tss@iki.fi>
+
+	+ SSL: Added support for ECDH/ECDHE cipher suites (by David Hicks)
+	+ Added some missing man pages (by Pascal Volk)
+	+ quota-status: Added quota_status_toolarge setting (by Ulrich Zehl)
+	- director: Users near expiration could have been redirected to
+	  different servers at the same time.
+	- pop3: Avoid assert-crash if client disconnects during LIST. 
+	- mdbox: Corrupted index header still wasn't automatically fixed.
+	- dsync: Various fixes to work better with imapc and pop3c storages.
+	- ldap: sasl_bind=yes caused crashes, because Dovecot's lib-sasl
+	  symbols conflicted with Cyrus SASL library.
+	- imap: Various error handling fixes to CATENATE. (Found using
+	  Apple's stress test script.)
+
+v2.2.4 2013-06-25  Timo Sirainen <tss@iki.fi>
+
+	+ doveadm: Added "flags" command to modify message flags.
+	+ doveadm: Added "deduplicate" command to expunge message duplicates.
+	+ dsync: Show the state in process title with verbose_proctitle=yes.
+	- imap/pop3 proxy: Master user logins were broken in v2.2.3
+	- sdbox/mdbox: A corrupted index header with wrong size was never
+	  automatically fixed in v2.2.3.
+	- mbox: Fixed assert-crashes related to locking.
+
+v2.2.3 2013-06-17  Timo Sirainen <tss@iki.fi>
+
+	* LDA/LMTP: If new mail delivery first fails with "temporary
+	  failure", tempfail the whole delivery instead of falling back to
+	  delivering the mail to INBOX. (Requires new Pigeonhole as well.)
+	* doc/solr-schema.xml was updated to Solr v4.x format. Also the
+	  default analyzers were changed, hopefully for the better. Note that
+	  the schema can't be changed for existing Solr indexes without
+	  rebuilding everything.
+	* Solr plugin does only soft commits from now on. You'll need a
+	  cronjob to send a hard commit command to it every few minutes.
+
+	+ Added %N modifier for variables as %H-like "new hash"
+	+ sdbox, mdbox: Support POP3 message order field (for migrations)
+	+ Added mailbox { driver } to specify a different mail storage
+	  format for the mailbox than generally used within the namespace.
+	+ Added initial lib-sasl library for client side SASL support.
+	  Currently supports only PLAIN, LOGIN and plugins. Used currently
+	  by IMAP and POP3 proxying when authenticating to the remote server.
+	- IMAP: If subject contained only whitespace, Dovecot returned an
+	  ENVELOPE reply with a huge literal value, effectively causing the
+	  IMAP client to wait for more data forever.
+	- IMAP: Various URLAUTH fixes.
+	- imapc: Various bugfixes and improvements
+	- pop3c: Various fixes to make it work in dsync (without imapc)
+	- dsync: Fixes to syncing subscriptions. Fixes to syncing mailbox
+	  renames.
+
 v2.2.2 2013-05-20  Timo Sirainen <tss@iki.fi>
 
 	+ zlib: Keep the last mail cached uncompressed in a temp file. This

@@ -55,7 +55,7 @@ enum client_auth_result {
 struct client_auth_reply {
 	const char *master_user, *reason;
 	/* for proxying */
-	const char *host, *hostip, *destuser, *password;
+	const char *host, *hostip, *destuser, *password, *proxy_mech;
 	unsigned int port;
 	unsigned int proxy_timeout_msecs;
 	unsigned int proxy_refresh_secs;
@@ -122,6 +122,8 @@ struct client {
 
 	struct login_proxy *login_proxy;
 	char *proxy_user, *proxy_master_user, *proxy_password;
+	const struct dsasl_client_mech *proxy_mech;
+	struct dsasl_client *proxy_sasl_client;
 	unsigned int proxy_state;
 	unsigned int proxy_ttl;
 
@@ -139,7 +141,7 @@ struct client {
 	unsigned int auth_attempts, auth_successes;
 	pid_t mail_pid;
 
-	char *virtual_user;
+	char *virtual_user, *virtual_user_orig;
 	unsigned int destroyed:1;
 	unsigned int input_blocked:1;
 	unsigned int login_success:1;

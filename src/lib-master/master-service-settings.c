@@ -150,6 +150,7 @@ config_exec_fallback(struct master_service *service,
 {
 	const char *path;
 	struct stat st;
+	int saved_errno = errno;
 
 	if (input->never_exec)
 		return;
@@ -161,6 +162,7 @@ config_exec_fallback(struct master_service *service,
 		/* it's a file, not a socket/pipe */
 		master_service_exec_config(service, input);
 	}
+	errno = saved_errno;
 }
 
 static int
@@ -336,6 +338,23 @@ config_read_reply_header(struct istream *istream, const char *path, pool_t pool,
 	return 0;
 }
 
+void master_service_config_socket_try_open(struct master_service *service)
+{
+	struct master_service_settings_input input;
+	const char *path, *error;
+	int fd;
+
+	if (getenv("DOVECONF_ENV") != NULL ||
+	    (service->flags & MASTER_SERVICE_FLAG_NO_CONFIG_SETTINGS) != 0)
+		return;
+
+	memset(&input, 0, sizeof(input));
+	input.never_exec = TRUE;
+	fd = master_service_open_config(service, &input, &path, &error);
+	if (fd != -1)
+		service->config_fd = fd;
+}
+
 int master_service_settings_read(struct master_service *service,
 				 const struct master_service_settings_input *input,
 				 struct master_service_settings_output *output_r,
@@ -350,20 +369,32 @@ int master_service_settings_read(struct master_service *service,
 	unsigned int i;
 	int ret, fd = -1;
 	time_t now, timeout;
-	bool use_environment;
+	bool use_environment, retry;
 
 	memset(output_r, 0, sizeof(*output_r));
 
 	if (getenv("DOVECONF_ENV") == NULL &&
 	    (service->flags & MASTER_SERVICE_FLAG_NO_CONFIG_SETTINGS) == 0) {
-		fd = master_service_open_config(service, input, &path, error_r);
-		if (fd == -1)
-			return -1;
+		retry = service->config_fd != -1;
+		for (;;) {
+			fd = master_service_open_config(service, input,
+							&path, error_r);
+			if (fd == -1) {
+				if (errno == EACCES)
+					output_r->permission_denied = TRUE;
+				return -1;
+			}
 
-		if (config_send_request(service, input, fd, path, error_r) < 0) {
+			if (config_send_request(service, input, fd,
+						path, error_r) == 0)
+				break;
 			i_close_fd(&fd);
-			config_exec_fallback(service, input);
-			return -1;
+			if (!retry) {
+				config_exec_fallback(service, input);
+				return -1;
+			}
+			/* config process died, retry connecting */
+			retry = FALSE;
 		}
 	}
 

@@ -81,7 +81,8 @@ static bool doveadm_server_have_used_connections(struct doveadm_server *server)
 	return FALSE;
 }
 
-static void doveadm_cmd_callback(enum server_cmd_reply reply, void *context)
+static void doveadm_cmd_callback(int exit_code, const char *error,
+				 void *context)
 {
 	struct doveadm_mail_server_cmd *servercmd = context;
 	struct doveadm_server *server =
@@ -91,21 +92,23 @@ static void doveadm_cmd_callback(enum server_cmd_reply reply, void *context)
 	i_free(servercmd->username);
 	i_free(servercmd);
 
-	switch (reply) {
-	case SERVER_CMD_REPLY_INTERNAL_FAILURE:
-		i_error("%s: Internal failure for %s", server->name, username);
+	switch (exit_code) {
+	case 0:
+		break;
+	case SERVER_EXIT_CODE_DISCONNECTED:
+		i_error("%s: Command %s failed for %s: %s",
+			server->name, cmd_ctx->cmd->name, username, error);
 		internal_failure = TRUE;
 		master_service_stop(master_service);
 		return;
-	case SERVER_CMD_REPLY_UNKNOWN_USER:
+	case EX_NOUSER:
 		i_error("%s: No such user: %s", server->name, username);
 		if (cmd_ctx->exit_code == 0)
 			cmd_ctx->exit_code = EX_NOUSER;
 		break;
-	case SERVER_CMD_REPLY_FAIL:
-		doveadm_mail_failed_error(cmd_ctx, MAIL_ERROR_TEMP);
-		break;
-	case SERVER_CMD_REPLY_OK:
+	default:
+		if (cmd_ctx->exit_code == 0 || exit_code == EX_TEMPFAIL)
+			cmd_ctx->exit_code = exit_code;
 		break;
 	}
 
@@ -190,6 +193,10 @@ doveadm_mail_server_user_get_host(struct doveadm_mail_cmd_context *ctx,
 
 	memset(&info, 0, sizeof(info));
 	info.service = master_service_get_name(master_service);
+	info.local_ip = input->local_ip;
+	info.remote_ip = input->remote_ip;
+	info.local_port = input->local_port;
+	info.remote_port = input->remote_port;
 
 	pool = pool_alloconly_create("auth lookup", 1024);
 	auth_conn = mail_storage_service_get_auth_conn(ctx->storage_service);
@@ -200,7 +207,7 @@ doveadm_mail_server_user_get_host(struct doveadm_mail_cmd_context *ctx,
 		*error_r = fields[0] != NULL ?
 			t_strdup(fields[0]) : "passdb lookup failed";
 		*error_r = t_strdup_printf("%s: %s (to see if user is proxied, "
-					   "because doveadm_proxy_port is set)",
+					   "because doveadm_port is set)",
 					   auth_socket_path, *error_r);
 	} else if (ret == 0) {
 		/* user not found from passdb. it could be in userdb though,

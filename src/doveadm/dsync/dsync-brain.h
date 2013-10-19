@@ -15,7 +15,14 @@ enum dsync_brain_flags {
 	DSYNC_BRAIN_FLAG_SYNC_VISIBLE_NAMESPACES= 0x10,
 	/* Sync everything but the actual mails (e.g. mailbox creates,
 	   deletes) */
-	DSYNC_BRAIN_FLAG_NO_MAIL_SYNC		= 0x20
+	DSYNC_BRAIN_FLAG_NO_MAIL_SYNC		= 0x20,
+	/* Used with BACKUP_SEND/RECV: Don't force the
+	   Use the two-way syncing algorithm, but don't actually modify
+	   anything locally. (Useful during migration.) */
+	DSYNC_BRAIN_FLAG_NO_BACKUP_OVERWRITE	= 0x40,
+	/* Run storage purge on the remote after syncing.
+	   Useful with e.g. a nightly doveadm backup. */
+	DSYNC_BRAIN_FLAG_PURGE_REMOTE		= 0x80
 };
 
 enum dsync_brain_sync_type {
@@ -30,15 +37,31 @@ enum dsync_brain_sync_type {
 	DSYNC_BRAIN_SYNC_TYPE_STATE
 };
 
+struct dsync_brain_settings {
+	/* Sync only this namespace */
+	struct mail_namespace *sync_ns;
+	/* Sync only this mailbox name */
+	const char *sync_box;
+	/* Sync only this mailbox GUID */
+	guid_128_t sync_box_guid;
+	/* Exclude these mailboxes from the sync. They can contain '*'
+	   wildcards and be \special-use flags. */
+	const char *const *exclude_mailboxes;
+
+	/* If non-zero, use dsync lock file for this user */
+	unsigned int lock_timeout_secs;
+	/* Input state for DSYNC_BRAIN_SYNC_TYPE_STATE */
+	const char *state;
+};
+
 struct dsync_brain *
 dsync_brain_master_init(struct mail_user *user, struct dsync_ibc *ibc,
-			struct mail_namespace *sync_ns, const char *sync_box,
-			const guid_128_t sync_box_guid,
 			enum dsync_brain_sync_type sync_type,
-			enum dsync_brain_flags flags, unsigned int lock_timeout,
-			const char *state);
+			enum dsync_brain_flags flags,
+			const struct dsync_brain_settings *set);
 struct dsync_brain *
-dsync_brain_slave_init(struct mail_user *user, struct dsync_ibc *ibc);
+dsync_brain_slave_init(struct mail_user *user, struct dsync_ibc *ibc,
+		       bool local);
 /* Returns 0 if everything was successful, -1 if syncing failed in some way */
 int dsync_brain_deinit(struct dsync_brain **brain);
 
@@ -52,5 +75,10 @@ bool dsync_brain_has_failed(struct dsync_brain *brain);
 void dsync_brain_get_state(struct dsync_brain *brain, string_t *output);
 /* Returns the sync type that was used. Mainly useful with slave brain. */
 enum dsync_brain_sync_type dsync_brain_get_sync_type(struct dsync_brain *brain);
+/* Returns TRUE if there were any unexpected changes during the sync. */
+bool dsync_brain_has_unexpected_changes(struct dsync_brain *brain);
+/* Returns TRUE if we want to sync this namespace. */
+bool dsync_brain_want_namespace(struct dsync_brain *brain,
+				struct mail_namespace *ns);
 
 #endif

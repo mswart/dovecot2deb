@@ -28,10 +28,11 @@
 #define DSYNC_IBC_STREAM_OUTBUF_THROTTLE_SIZE (1024*128)
 
 #define DSYNC_PROTOCOL_VERSION_MAJOR 3
-#define DSYNC_PROTOCOL_VERSION_MINOR 1
-#define DSYNC_HANDSHAKE_VERSION "VERSION\tdsync\t3\t1\n"
+#define DSYNC_PROTOCOL_VERSION_MINOR 2
+#define DSYNC_HANDSHAKE_VERSION "VERSION\tdsync\t3\t2\n"
 
 #define DSYNC_PROTOCOL_MINOR_HAVE_ATTRIBUTES 1
+#define DSYNC_PROTOCOL_MINOR_HAVE_SAVE_GUID 2
 
 enum item_type {
 	ITEM_NONE,
@@ -72,8 +73,9 @@ static const struct {
 	  .chr = 'H',
 	  .required_keys = "hostname",
 	  .optional_keys = "sync_ns_prefix sync_box sync_box_guid sync_type "
-	  	"debug sync_visible_namespaces "
-	  	"send_mail_requests backup_send backup_recv lock_timeout"
+	  	"debug sync_visible_namespaces exclude_mailboxes "
+	  	"send_mail_requests backup_send backup_recv lock_timeout "
+	  	"no_mail_sync no_backup_overwrite purge_remote"
 	},
 	{ .name = "mailbox_state",
 	  .chr = 'S',
@@ -90,7 +92,7 @@ static const struct {
 	{ .name = "mailbox_delete",
 	  .chr = 'D',
 	  .required_keys = "hierarchy_sep",
-	  .optional_keys = "mailboxes dirs"
+	  .optional_keys = "mailboxes dirs unsubscribes"
 	},
 	{ .name = "mailbox",
 	  .chr = 'B',
@@ -321,7 +323,14 @@ static void dsync_ibc_stream_init(struct dsync_ibc_stream *ibc)
 static void dsync_ibc_stream_deinit(struct dsync_ibc *_ibc)
 {
 	struct dsync_ibc_stream *ibc = (struct dsync_ibc_stream *)_ibc;
+	unsigned int i;
 
+	for (i = ITEM_DONE + 1; i < ITEM_END_OF_LIST; i++) {
+		if (ibc->serializers[i] != NULL)
+			dsync_serializer_deinit(&ibc->serializers[i]);
+		if (ibc->deserializers[i] != NULL)
+			dsync_deserializer_deinit(&ibc->deserializers[i]);
+	}
 	if (ibc->cur_decoder != NULL)
 		dsync_deserializer_decode_finish(&ibc->cur_decoder);
 	if (ibc->value_output != NULL)
@@ -348,6 +357,7 @@ static void dsync_ibc_stream_deinit(struct dsync_ibc *_ibc)
 static int dsync_ibc_stream_next_line(struct dsync_ibc_stream *ibc,
 				      const char **line_r)
 {
+	string_t *error;
 	const char *line;
 
 	line = i_stream_next_line(ibc->input);
@@ -359,13 +369,19 @@ static int dsync_ibc_stream_next_line(struct dsync_ibc_stream *ibc,
 	if (i_stream_read(ibc->input) == -1) {
 		if (ibc->stopped)
 			return -1;
+		error = t_str_new(128);
 		if (ibc->input->stream_errno != 0) {
 			errno = ibc->input->stream_errno;
-			i_error("read(%s) failed: %m", ibc->name);
+			str_printfa(error, "read(%s) failed: %m", ibc->name);
 		} else {
 			i_assert(ibc->input->eof);
-			i_error("read(%s) failed: EOF", ibc->name);
+			str_printfa(error, "read(%s) failed: EOF", ibc->name);
 		}
+		if (!ibc->version_received)
+			str_append(error, " (version not received)");
+		else if (!ibc->handshake_received)
+			str_append(error, " (handshake not received)");
+		i_error("%s", str_c(error));
 		dsync_ibc_stream_stop(ibc);
 		return -1;
 	}
@@ -593,6 +609,18 @@ dsync_ibc_stream_send_handshake(struct dsync_ibc *_ibc,
 	}
 	if (set->sync_box != NULL)
 		dsync_serializer_encode_add(encoder, "sync_box", set->sync_box);
+	if (set->exclude_mailboxes != NULL) {
+		string_t *substr = t_str_new(64);
+		unsigned int i;
+
+		for (i = 0; set->exclude_mailboxes[i] != NULL; i++) {
+			if (i != 0)
+				str_append_c(substr, '\t');
+			str_append_tabescaped(substr, set->exclude_mailboxes[i]);
+		}
+		dsync_serializer_encode_add(encoder, "exclude_mailboxes",
+					    str_c(substr));
+	}
 	if (!guid_128_is_empty(set->sync_box_guid)) {
 		dsync_serializer_encode_add(encoder, "sync_box_guid",
 			guid_128_to_string(set->sync_box_guid));
@@ -628,6 +656,12 @@ dsync_ibc_stream_send_handshake(struct dsync_ibc *_ibc,
 		dsync_serializer_encode_add(encoder, "debug", "");
 	if ((set->brain_flags & DSYNC_BRAIN_FLAG_SYNC_VISIBLE_NAMESPACES) != 0)
 		dsync_serializer_encode_add(encoder, "sync_visible_namespaces", "");
+	if ((set->brain_flags & DSYNC_BRAIN_FLAG_NO_MAIL_SYNC) != 0)
+		dsync_serializer_encode_add(encoder, "no_mail_sync", "");
+	if ((set->brain_flags & DSYNC_BRAIN_FLAG_NO_BACKUP_OVERWRITE) != 0)
+		dsync_serializer_encode_add(encoder, "no_backup_overwrite", "");
+	if ((set->brain_flags & DSYNC_BRAIN_FLAG_PURGE_REMOTE) != 0)
+		dsync_serializer_encode_add(encoder, "purge_remote", "");
 
 	dsync_serializer_encode_finish(&encoder, str);
 	dsync_ibc_stream_send_string(ibc, str);
@@ -659,6 +693,11 @@ dsync_ibc_stream_recv_handshake(struct dsync_ibc *_ibc,
 
 	value = dsync_deserializer_decode_get(decoder, "hostname");
 	set->hostname = p_strdup(pool, value);
+	/* now that we know the remote's hostname, use it for the
+	   stream's name */
+	i_free(ibc->name);
+	ibc->name = i_strdup(set->hostname);
+
 	if (dsync_deserializer_decode_try(decoder, "sync_ns_prefix", &value))
 		set->sync_ns_prefix = p_strdup(pool, value);
 	if (dsync_deserializer_decode_try(decoder, "sync_box", &value))
@@ -668,6 +707,11 @@ dsync_ibc_stream_recv_handshake(struct dsync_ibc *_ibc,
 		dsync_ibc_input_error(ibc, decoder,
 				      "Invalid sync_box_guid: %s", value);
 		return DSYNC_IBC_RECV_RET_TRYAGAIN;
+	}
+	if (dsync_deserializer_decode_try(decoder, "exclude_mailboxes", &value) &&
+	    *value != '\0') {
+		char **boxes = p_strsplit_tabescaped(pool, value);
+		set->exclude_mailboxes = (const void *)boxes;
 	}
 	if (dsync_deserializer_decode_try(decoder, "sync_type", &value)) {
 		switch (value[0]) {
@@ -704,6 +748,12 @@ dsync_ibc_stream_recv_handshake(struct dsync_ibc *_ibc,
 		set->brain_flags |= DSYNC_BRAIN_FLAG_DEBUG;
 	if (dsync_deserializer_decode_try(decoder, "sync_visible_namespaces", &value))
 		set->brain_flags |= DSYNC_BRAIN_FLAG_SYNC_VISIBLE_NAMESPACES;
+	if (dsync_deserializer_decode_try(decoder, "no_mail_sync", &value))
+		set->brain_flags |= DSYNC_BRAIN_FLAG_NO_MAIL_SYNC;
+	if (dsync_deserializer_decode_try(decoder, "no_backup_overwrite", &value))
+		set->brain_flags |= DSYNC_BRAIN_FLAG_NO_BACKUP_OVERWRITE;
+	if (dsync_deserializer_decode_try(decoder, "purge_remote", &value))
+		set->brain_flags |= DSYNC_BRAIN_FLAG_PURGE_REMOTE;
 
 	*set_r = set;
 	return DSYNC_IBC_RECV_RET_OK;
@@ -936,6 +986,28 @@ dsync_ibc_stream_recv_mailbox_tree_node(struct dsync_ibc *_ibc,
 }
 
 static void
+dsync_ibc_stream_encode_delete(string_t *str,
+			       struct dsync_serializer_encoder *encoder,
+			       const struct dsync_mailbox_delete *deletes,
+			       unsigned int count, const char *key,
+			       enum dsync_mailbox_delete_type type)
+{
+	unsigned int i;
+
+	str_truncate(str, 0);
+	for (i = 0; i < count; i++) {
+		if (deletes[i].type == type) {
+			str_append(str, guid_128_to_string(deletes[i].guid));
+			str_printfa(str, " %ld ", (long)deletes[i].timestamp);
+		}
+	}
+	if (str_len(str) > 0) {
+		str_truncate(str, str_len(str)-1);
+		dsync_serializer_encode_add(encoder, key, str_c(str));
+	}
+}
+
+static void
 dsync_ibc_stream_send_mailbox_deletes(struct dsync_ibc *_ibc,
 				      const struct dsync_mailbox_delete *deletes,
 				      unsigned int count, char hierarchy_sep)
@@ -944,7 +1016,6 @@ dsync_ibc_stream_send_mailbox_deletes(struct dsync_ibc *_ibc,
 	struct dsync_serializer_encoder *encoder;
 	string_t *str, *substr;
 	char sep[2];
-	unsigned int i;
 
 	str = t_str_new(128);
 	str_append_c(str, items[ITEM_MAILBOX_DELETE].chr);
@@ -954,29 +1025,15 @@ dsync_ibc_stream_send_mailbox_deletes(struct dsync_ibc *_ibc,
 	dsync_serializer_encode_add(encoder, "hierarchy_sep", sep);
 
 	substr = t_str_new(128);
-	for (i = 0; i < count; i++) {
-		if (deletes[i].delete_mailbox) {
-			str_append(substr, guid_128_to_string(deletes[i].guid));
-			str_printfa(substr, " %ld ", (long)deletes[i].timestamp);
-		}
-	}
-	if (str_len(substr) > 0) {
-		str_truncate(substr, str_len(substr)-1);
-		dsync_serializer_encode_add(encoder, "mailboxes",
-					    str_c(substr));
-	}
-
-	str_truncate(substr, 0);
-	for (i = 0; i < count; i++) {
-		if (!deletes[i].delete_mailbox) {
-			str_append(substr, guid_128_to_string(deletes[i].guid));
-			str_printfa(substr, " %ld ", (long)deletes[i].timestamp);
-		}
-	}
-	if (str_len(substr) > 0) {
-		str_truncate(substr, str_len(substr)-1);
-		dsync_serializer_encode_add(encoder, "dirs", str_c(substr));
-	}
+	dsync_ibc_stream_encode_delete(substr, encoder, deletes, count,
+				       "mailboxes",
+				       DSYNC_MAILBOX_DELETE_TYPE_MAILBOX);
+	dsync_ibc_stream_encode_delete(substr, encoder, deletes, count,
+				       "dirs",
+				       DSYNC_MAILBOX_DELETE_TYPE_DIR);
+	dsync_ibc_stream_encode_delete(substr, encoder, deletes, count,
+				       "unsubscribes",
+				       DSYNC_MAILBOX_DELETE_TYPE_UNSUBSCRIBE);
 	dsync_serializer_encode_finish(&encoder, str);
 	dsync_ibc_stream_send_string(ibc, str);
 }
@@ -984,7 +1041,7 @@ dsync_ibc_stream_send_mailbox_deletes(struct dsync_ibc *_ibc,
 ARRAY_DEFINE_TYPE(dsync_mailbox_delete, struct dsync_mailbox_delete);
 static int
 decode_mailbox_deletes(ARRAY_TYPE(dsync_mailbox_delete) *deletes,
-		       const char *value, bool delete_mailbox)
+		       const char *value, enum dsync_mailbox_delete_type type)
 {
 	struct dsync_mailbox_delete *del;
 	const char *const *tmp;
@@ -993,7 +1050,7 @@ decode_mailbox_deletes(ARRAY_TYPE(dsync_mailbox_delete) *deletes,
 	tmp = t_strsplit(value, " ");
 	for (i = 0; tmp[i] != NULL; i += 2) {
 		del = array_append_space(deletes);
-		del->delete_mailbox = delete_mailbox;
+		del->type = type;
 		if (guid_128_from_string(tmp[i], del->guid) < 0)
 			return -1;
 		if (tmp[i+1] == NULL ||
@@ -1029,12 +1086,20 @@ dsync_ibc_stream_recv_mailbox_deletes(struct dsync_ibc *_ibc,
 	*hierarchy_sep_r = value[0];
 
 	if (dsync_deserializer_decode_try(decoder, "mailboxes", &value) &&
-	    decode_mailbox_deletes(&deletes, value, TRUE) < 0) {
+	    decode_mailbox_deletes(&deletes, value,
+				   DSYNC_MAILBOX_DELETE_TYPE_MAILBOX) < 0) {
 		dsync_ibc_input_error(ibc, decoder, "Invalid mailboxes");
 		return DSYNC_IBC_RECV_RET_TRYAGAIN;
 	}
 	if (dsync_deserializer_decode_try(decoder, "dirs", &value) &&
-	    decode_mailbox_deletes(&deletes, value, FALSE) < 0) {
+	    decode_mailbox_deletes(&deletes, value,
+				   DSYNC_MAILBOX_DELETE_TYPE_DIR) < 0) {
+		dsync_ibc_input_error(ibc, decoder, "Invalid dirs");
+		return DSYNC_IBC_RECV_RET_TRYAGAIN;
+	}
+	if (dsync_deserializer_decode_try(decoder, "unsubscribes", &value) &&
+	    decode_mailbox_deletes(&deletes, value,
+				   DSYNC_MAILBOX_DELETE_TYPE_UNSUBSCRIBE) < 0) {
 		dsync_ibc_input_error(ibc, decoder, "Invalid dirs");
 		return DSYNC_IBC_RECV_RET_TRYAGAIN;
 	}
@@ -1212,7 +1277,8 @@ dsync_ibc_stream_recv_mailbox(struct dsync_ibc *_ibc,
 		box->mailbox_lost = TRUE;
 	if (dsync_deserializer_decode_try(decoder, "have_guids", &value))
 		box->have_guids = TRUE;
-	if (dsync_deserializer_decode_try(decoder, "have_save_guids", &value))
+	if (dsync_deserializer_decode_try(decoder, "have_save_guids", &value) ||
+	    (box->have_guids && ibc->minor_version < DSYNC_PROTOCOL_MINOR_HAVE_SAVE_GUID))
 		box->have_save_guids = TRUE;
 	value = dsync_deserializer_decode_get(decoder, "uid_validity");
 	if (str_to_uint32(value, &box->uid_validity) < 0) {

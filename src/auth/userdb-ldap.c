@@ -52,7 +52,7 @@ ldap_query_get_result(struct ldap_connection *conn,
 
 	auth_request_init_userdb_reply(auth_request);
 
-	ldap_iter = db_ldap_result_iterate_init(conn, ldap_request, res);
+	ldap_iter = db_ldap_result_iterate_init(conn, ldap_request, res, TRUE);
 	while (db_ldap_result_iterate_next(ldap_iter, &name, &values)) {
 		auth_request_set_userdb_field_values(auth_request,
 						     name, values);
@@ -71,8 +71,7 @@ userdb_ldap_lookup_finish(struct auth_request *auth_request,
 		result = USERDB_RESULT_INTERNAL_FAILURE;
 	} else if (urequest->entries == 0) {
 		result = USERDB_RESULT_USER_UNKNOWN;
-		auth_request_log_info(auth_request, "ldap",
-				      "unknown user");
+		auth_request_log_unknown_user(auth_request, "ldap");
 	} else if (urequest->entries > 1) {
 		auth_request_log_error(auth_request, "ldap",
 			"user_filter matched multiple objects, aborting");
@@ -169,7 +168,8 @@ static void userdb_ldap_iterate_callback(struct ldap_connection *conn,
 	request->create_time = ioloop_time;
 
 	ctx->in_callback = TRUE;
-	ldap_iter = db_ldap_result_iterate_init(conn, &urequest->request, res);
+	ldap_iter = db_ldap_result_iterate_init(conn, &urequest->request,
+						res, TRUE);
 	while (db_ldap_result_iterate_next(ldap_iter, &name, &values)) {
 		if (strcmp(name, "user") != 0) {
 			i_warning("ldap: iterate: "
