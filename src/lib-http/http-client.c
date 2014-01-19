@@ -19,28 +19,45 @@
 #define HTTP_DEFAULT_PORT 80
 #define HTTPS_DEFAULT_PORT 443
 
-/* FIXME: This implementation not yet finished. The essence works: it is
-   possible to submit requests through the client. Responses are dumped to
-   stdout
+/* Structure:
 
-    Structure so far:
-    Client - Acts much like a browser; it is not dedicated to a single host.
-             Client can accept requests to different hosts, which can be served
-             at different IPs. Redirects can be handled in the background by
-             making a new connection. Connections to new hosts are created once
-             needed for servicing a request.
-    Requests - Semantics are similar to imapc commands. Create a request, 
-               optionally modify some aspects of it and finally submit it.
-    Hosts - We maintain a 'cache' of hosts for which we have looked up IPs.
-            Requests are first queued in the host struct on a per-port basis.
-    Peers - Group connections to the same ip/port (== peer_addr).
-    Connections - Actual connections to a server. Once a connection is ready to
-                  handle requests, it claims a request from a host object. One
-                  connection hand service multiple hosts and one host can have
-                  multiple associated connections, possibly to different ips and
-                  ports.
+	 http-client:
 
-  TODO: lots of cleanup, authentication, ssl, timeouts,	 rawlog etc.
+	 Acts much like a browser; it is not dedicated to a single host. Client can
+   accept requests to different hosts, which can be served at different IPs.
+   Redirects are handled in the background by making a new connection.
+   Connections to new hosts are created once needed for servicing a request.
+
+	 http-client-request:
+
+	 The request semantics are similar to imapc commands. Create a request, 
+   optionally modify some aspects of it and finally submit it. Once finished,
+   a callback is called with the returned response.
+
+   http-client-host:
+
+   We maintain a 'cache' of hosts for which we have looked up IPs. One host
+   can have multiple IPs.
+
+   http-client-queue:
+
+   Requests are queued in a queue object. These queues are maintained for each
+   host:port target and listed in the host object. The queue object is
+   responsible for starting connection attempts to TCP port at the various IPs
+   known for the host.
+
+   http-client-peer:
+
+   The peer object groups multiple connections to the same ip/port
+   (== peer_addr).
+
+   http-client-connection:
+
+   This is an actual connection to a server. Once a connection is ready to
+   handle requests, it claims a request from a host object. One connection can
+   service multiple hosts and one host can have multiple associated connections,
+   possibly to different ips and ports.
+
  */
 
 /*
@@ -75,12 +92,11 @@ struct http_client *http_client_init(const struct http_client_settings *set)
 	pool = pool_alloconly_create("http client", 1024);
 	client = p_new(pool, struct http_client, 1);
 	client->pool = pool;
-	if (set->dns_client_socket_path != NULL && *set->dns_client_socket_path != '\0') {
-		client->set.dns_client_socket_path =
-			p_strdup(pool, set->dns_client_socket_path);
-	}
-	if (set->rawlog_dir != NULL && *set->rawlog_dir != '\0')
-		client->set.rawlog_dir = p_strdup(pool, set->rawlog_dir);
+	client->set.dns_client = set->dns_client;
+	client->set.dns_client_socket_path =
+		p_strdup_empty(pool, set->dns_client_socket_path);
+	client->set.user_agent = p_strdup_empty(pool, set->user_agent);
+	client->set.rawlog_dir = p_strdup_empty(pool, set->rawlog_dir);
 	client->set.ssl_ca_dir = p_strdup(pool, set->ssl_ca_dir);
 	client->set.ssl_ca_file = p_strdup(pool, set->ssl_ca_file);
 	client->set.ssl_ca = p_strdup(pool, set->ssl_ca);
@@ -89,17 +105,29 @@ struct http_client *http_client_init(const struct http_client_settings *set)
 	client->set.ssl_cert = p_strdup(pool, set->ssl_cert);
 	client->set.ssl_key = p_strdup(pool, set->ssl_key);
 	client->set.ssl_key_password = p_strdup(pool, set->ssl_key_password);
+
+	if (set->proxy_socket_path != NULL && *set->proxy_socket_path != '\0') {
+		client->set.proxy_socket_path = p_strdup(pool, set->proxy_socket_path);
+	} else if (set->proxy_url != NULL) {
+		client->set.proxy_url = http_url_clone(pool, set->proxy_url);
+	}
+	client->set.proxy_username = p_strdup_empty(pool, set->proxy_username);
+	client->set.proxy_password = p_strdup_empty(pool, set->proxy_password);
+
 	client->set.max_idle_time_msecs = set->max_idle_time_msecs;
 	client->set.max_parallel_connections =
 		(set->max_parallel_connections > 0 ? set->max_parallel_connections : 1);
 	client->set.max_pipelined_requests =
 		(set->max_pipelined_requests > 0 ? set->max_pipelined_requests : 1);
 	client->set.max_attempts = set->max_attempts;
+	client->set.no_auto_redirect = set->no_auto_redirect;
+	client->set.no_ssl_tunnel = set->no_ssl_tunnel;
 	client->set.max_redirects = set->max_redirects;
 	client->set.response_hdr_limits = set->response_hdr_limits;
 	client->set.request_timeout_msecs = set->request_timeout_msecs;
 	client->set.connect_timeout_msecs = set->connect_timeout_msecs;
 	client->set.soft_connect_timeout_msecs = set->soft_connect_timeout_msecs;
+	client->set.max_auto_retry_delay = set->max_auto_retry_delay;
 	client->set.debug = set->debug;
 
 	client->conn_list = http_client_connection_list_init();
@@ -189,9 +217,9 @@ void http_client_wait(struct http_client *client)
 
 	http_client_debug(client, "All requests finished");
 
-	current_ioloop = prev_ioloop;
+	io_loop_set_current(prev_ioloop);
 	http_client_switch_ioloop(client);
-	current_ioloop = client->ioloop;
+	io_loop_set_current(client->ioloop);
 	io_loop_destroy(&client->ioloop);
 }
 

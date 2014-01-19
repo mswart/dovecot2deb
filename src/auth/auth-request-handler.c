@@ -173,7 +173,8 @@ auth_str_append_extra_fields(struct auth_request *request, string_t *dest)
 	auth_fields_append(request->extra_fields, dest,
 			   AUTH_FIELD_FLAG_HIDDEN, 0);
 
-	if (strcmp(request->original_username, request->user) != 0) {
+	if (request->original_username != NULL &&
+	    null_strcmp(request->original_username, request->user) != 0) {
 		auth_str_add_keyvalue(dest, "original_user",
 				      request->original_username);
 	}
@@ -632,14 +633,14 @@ static void userdb_callback(enum userdb_result result,
 
 	auth_request_set_state(request, AUTH_REQUEST_STATE_FINISHED);
 
-	if (request->userdb_lookup_failed)
+	if (request->userdb_lookup_tempfailed)
 		result = USERDB_RESULT_INTERNAL_FAILURE;
 
 	str = t_str_new(128);
 	switch (result) {
 	case USERDB_RESULT_INTERNAL_FAILURE:
 		str_printfa(str, "FAIL\t%u", request->id);
-		if (request->userdb_lookup_failed) {
+		if (request->userdb_lookup_tempfailed) {
 			value = auth_fields_find(request->userdb_reply, "reason");
 			if (value != NULL)
 				auth_str_add_keyvalue(str, "reason", value);
@@ -669,7 +670,8 @@ static void userdb_callback(enum userdb_result result,
 			str_append(str, "\tanonymous");
 		}
 		/* generate auth_token when master service provided session_pid */
-		if (request->session_pid != (pid_t)-1) {
+		if (request->request_auth_token &&
+		    request->session_pid != (pid_t)-1) {
 			const char *auth_token =
 				auth_token_get(request->service,
 					       dec2str(request->session_pid),

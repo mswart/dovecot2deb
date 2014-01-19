@@ -119,6 +119,7 @@ struct pop3c_settings {
 	bool pop3c_ssl_verify;
 
 	const char *pop3c_rawlog_dir;
+	bool pop3c_quick_received_date;
 };
 /* ../../src/lib-storage/index/mbox/mbox-settings.h */
 struct mbox_settings {
@@ -142,7 +143,8 @@ struct maildir_settings {
 /* <settings checks> */
 enum imapc_features {
 	IMAPC_FEATURE_RFC822_SIZE	= 0x01,
-	IMAPC_FEATURE_GUID_FORCED	= 0x02
+	IMAPC_FEATURE_GUID_FORCED	= 0x02,
+	IMAPC_FEATURE_FETCH_HEADERS	= 0x04
 };
 /* </settings checks> */
 struct imapc_settings {
@@ -818,6 +820,7 @@ static const struct setting_define pop3c_setting_defines[] = {
 	DEF(SET_BOOL, pop3c_ssl_verify),
 
 	DEF(SET_STR, pop3c_rawlog_dir),
+	DEF(SET_BOOL, pop3c_quick_received_date),
 
 	SETTING_DEFINE_LIST_END
 };
@@ -832,7 +835,8 @@ static const struct pop3c_settings pop3c_default_settings = {
 	.pop3c_ssl = "no:pop3s:starttls",
 	.pop3c_ssl_verify = TRUE,
 
-	.pop3c_rawlog_dir = ""
+	.pop3c_rawlog_dir = "",
+	.pop3c_quick_received_date = FALSE
 };
 static const struct setting_parser_info pop3c_setting_parser_info = {
 	.module_name = "pop3c",
@@ -923,6 +927,7 @@ struct imapc_feature_list {
 static const struct imapc_feature_list imapc_feature_list[] = {
 	{ "rfc822.size", IMAPC_FEATURE_RFC822_SIZE },
 	{ "guid-forced", IMAPC_FEATURE_GUID_FORCED },
+	{ "fetch-headers", IMAPC_FEATURE_FETCH_HEADERS },
 	{ NULL, 0 }
 };
 
@@ -1121,12 +1126,14 @@ struct stats_settings {
 /* ../../src/ssl-params/ssl-params-settings.h */
 struct ssl_params_settings {
 	unsigned int ssl_parameters_regenerate;
+	unsigned int ssl_dh_parameters_length;
 };
 /* ../../src/replication/replicator/replicator-settings.h */
 extern const struct setting_parser_info replicator_setting_parser_info;
 struct replicator_settings {
 	const char *auth_socket_path;
 	const char *doveadm_socket_path;
+	const char *replication_dsync_parameters;
 
 	unsigned int replication_full_sync_interval;
 	unsigned int replication_max_conns;
@@ -1247,6 +1254,7 @@ struct imap_settings {
 	const char *imap_logout_format;
 	const char *imap_id_send;
 	const char *imap_id_log;
+	bool imap_metadata;
 
 	/* imap urlauth: */
 	const char *imap_urlauth_host;
@@ -1294,6 +1302,7 @@ struct doveadm_settings {
 	const char *libexec_dir;
 	const char *mail_plugins;
 	const char *mail_plugin_dir;
+	const char *auth_socket_path;
 	const char *doveadm_socket_path;
 	unsigned int doveadm_worker_count;
 	unsigned int doveadm_port;
@@ -1331,12 +1340,13 @@ struct auth_passdb_settings {
 	const char *args;
 	const char *default_fields;
 	const char *override_fields;
+
 	const char *skip;
 	const char *result_success;
 	const char *result_failure;
 	const char *result_internalfail;
 	bool deny;
-	bool pass;
+	bool pass; /* deprecated, use result_success=continue instead */
 	bool master;
 };
 struct auth_userdb_settings {
@@ -1344,6 +1354,11 @@ struct auth_userdb_settings {
 	const char *args;
 	const char *default_fields;
 	const char *override_fields;
+
+	const char *skip;
+	const char *result_success;
+	const char *result_failure;
+	const char *result_internalfail;
 };
 struct auth_settings {
 	const char *mechanisms;
@@ -1541,11 +1556,13 @@ struct service_settings ssl_params_service_settings = {
 	{ type, #name, offsetof(struct ssl_params_settings, name), NULL }
 static const struct setting_define ssl_params_setting_defines[] = {
 	DEF(SET_TIME, ssl_parameters_regenerate),
+	DEF(SET_UINT, ssl_dh_parameters_length),
 
 	SETTING_DEFINE_LIST_END
 };
 static const struct ssl_params_settings ssl_params_default_settings = {
-	.ssl_parameters_regenerate = 3600*24*7
+	.ssl_parameters_regenerate = 0,
+	.ssl_dh_parameters_length = 1024
 };
 const struct setting_parser_info ssl_params_setting_parser_info = {
 	.module_name = "ssl-params",
@@ -1602,6 +1619,7 @@ struct service_settings replicator_service_settings = {
 static const struct setting_define replicator_setting_defines[] = {
 	DEF(SET_STR, auth_socket_path),
 	DEF(SET_STR, doveadm_socket_path),
+	DEF(SET_STR, replication_dsync_parameters),
 
 	DEF(SET_TIME, replication_full_sync_interval),
 	DEF(SET_UINT, replication_max_conns),
@@ -1611,6 +1629,7 @@ static const struct setting_define replicator_setting_defines[] = {
 const struct replicator_settings replicator_default_settings = {
 	.auth_socket_path = "auth-userdb",
 	.doveadm_socket_path = "doveadm-server",
+	.replication_dsync_parameters = "-d -N -l 30 -U",
 
 	.replication_full_sync_interval = 60*60*24,
 	.replication_max_conns = 10
@@ -2434,7 +2453,7 @@ struct master_settings master_default_settings = {
 	.state_dir = PKG_STATEDIR,
 	.libexec_dir = PKG_LIBEXECDIR,
 	.instance_name = PACKAGE,
-	.import_environment = "TZ" ENV_SYSTEMD ENV_GDB,
+	.import_environment = "TZ CORE_OUTOFMEM CORE_ERROR" ENV_SYSTEMD ENV_GDB,
 	.protocols = "imap pop3 lmtp",
 	.listen = "*, ::",
 	.ssl = "yes:no:required",
@@ -2879,6 +2898,7 @@ static const struct setting_define imap_setting_defines[] = {
 	DEF(SET_STR, imap_logout_format),
 	DEF(SET_STR, imap_id_send),
 	DEF(SET_STR, imap_id_log),
+	DEF(SET_BOOL, imap_metadata),
 
 	DEF(SET_STR, imap_urlauth_host),
 	DEF(SET_UINT, imap_urlauth_port),
@@ -2898,6 +2918,7 @@ static const struct imap_settings imap_default_settings = {
 	.imap_logout_format = "in=%i out=%o",
 	.imap_id_send = "name *",
 	.imap_id_log = "",
+	.imap_metadata = FALSE,
 
 	.imap_urlauth_host = "",
 	.imap_urlauth_port = 143
@@ -3220,6 +3241,7 @@ static bool doveadm_settings_check(void *_set, pool_t pool ATTR_UNUSED,
 	struct doveadm_settings *set = _set;
 
 #ifndef CONFIG_BINARY
+	fix_base_path(set, pool, &set->auth_socket_path);
 	fix_base_path(set, pool, &set->doveadm_socket_path);
 #endif
 	if (*set->dsync_alt_char == '\0') {
@@ -3262,6 +3284,7 @@ static const struct setting_define doveadm_setting_defines[] = {
 	DEF(SET_STR, libexec_dir),
 	DEF(SET_STR, mail_plugins),
 	DEF(SET_STR, mail_plugin_dir),
+	DEF(SET_STR, auth_socket_path),
 	DEF(SET_STR, doveadm_socket_path),
 	DEF(SET_UINT, doveadm_worker_count),
 	DEF(SET_UINT, doveadm_port),
@@ -3282,6 +3305,7 @@ const struct doveadm_settings doveadm_default_settings = {
 	.libexec_dir = PKG_LIBEXECDIR,
 	.mail_plugins = "",
 	.mail_plugin_dir = MODULEDIR,
+	.auth_socket_path = "auth-userdb",
 	.doveadm_socket_path = "doveadm-server",
 	.doveadm_worker_count = 0,
 	.doveadm_port = 0,
@@ -3616,6 +3640,32 @@ auth_settings_set_self_ips(struct auth_settings *set, pool_t pool,
 	return TRUE;
 }
 
+static bool
+auth_verify_verbose_password(const struct auth_settings *set,
+			     const char **error_r)
+{
+	const char *p, *value = set->verbose_passwords;
+	unsigned int num;
+
+	p = strchr(value, ':');
+	if (p != NULL) {
+		if (str_to_uint(p+1, &num) < 0 || num == 0) {
+			*error_r = t_strdup_printf("auth_verbose_passwords: "
+				"Invalid truncation number: '%s'", p+1);
+			return FALSE;
+		}
+		value = t_strdup_until(value, p);
+	}
+	if (strcmp(value, "no") == 0)
+		return TRUE;
+	else if (strcmp(value, "plain") == 0)
+		return TRUE;
+	else if (strcmp(value, "sha1") == 0)
+		return TRUE;
+	else
+		return FALSE;
+}
+
 static bool auth_settings_check(void *_set, pool_t pool,
 				const char **error_r)
 {
@@ -3640,6 +3690,9 @@ static bool auth_settings_check(void *_set, pool_t pool,
 					   set->cache_size);
 		return FALSE;
 	}
+
+	if (!auth_verify_verbose_password(set, error_r))
+		return FALSE;
 
 	if (*set->username_chars == '\0') {
 		/* all chars are allowed */
@@ -3753,10 +3806,12 @@ static const struct setting_define auth_passdb_setting_defines[] = {
 	DEF(SET_STR, args),
 	DEF(SET_STR, default_fields),
 	DEF(SET_STR, override_fields),
+
 	DEF(SET_ENUM, skip),
 	DEF(SET_ENUM, result_success),
 	DEF(SET_ENUM, result_failure),
 	DEF(SET_ENUM, result_internalfail),
+
 	DEF(SET_BOOL, deny),
 	DEF(SET_BOOL, pass),
 	DEF(SET_BOOL, master),
@@ -3768,10 +3823,12 @@ static const struct auth_passdb_settings auth_passdb_default_settings = {
 	.args = "",
 	.default_fields = "",
 	.override_fields = "",
+
 	.skip = "never:authenticated:unauthenticated",
 	.result_success = "return-ok:return:return-fail:continue:continue-ok:continue-fail",
 	.result_failure = "continue:return:return-ok:return-fail:continue-ok:continue-fail",
 	.result_internalfail = "continue:return:return-ok:return-fail:continue-ok:continue-fail",
+
 	.deny = FALSE,
 	.pass = FALSE,
 	.master = FALSE
@@ -3797,13 +3854,24 @@ static const struct setting_define auth_userdb_setting_defines[] = {
 	DEF(SET_STR, default_fields),
 	DEF(SET_STR, override_fields),
 
+	DEF(SET_ENUM, skip),
+	DEF(SET_ENUM, result_success),
+	DEF(SET_ENUM, result_failure),
+	DEF(SET_ENUM, result_internalfail),
+
 	SETTING_DEFINE_LIST_END
 };
 static const struct auth_userdb_settings auth_userdb_default_settings = {
+	/* NOTE: when adding fields, update also auth.c:userdb_dummy_set */
 	.driver = "",
 	.args = "",
 	.default_fields = "",
-	.override_fields = ""
+	.override_fields = "",
+
+	.skip = "never:found:notfound",
+	.result_success = "return-ok:return:return-fail:continue:continue-ok:continue-fail",
+	.result_failure = "continue:return:return-ok:return-fail:continue-ok:continue-fail",
+	.result_internalfail = "continue:return:return-ok:return-fail:continue-ok:continue-fail"
 };
 const struct setting_parser_info auth_userdb_setting_parser_info = {
 	.defines = auth_userdb_setting_defines,
@@ -3847,7 +3915,7 @@ static const struct setting_define auth_setting_defines[] = {
 	DEF(SET_BOOL, verbose),
 	DEF(SET_BOOL, debug),
 	DEF(SET_BOOL, debug_passwords),
-	DEF(SET_ENUM, verbose_passwords),
+	DEF(SET_STR, verbose_passwords),
 	DEF(SET_BOOL, ssl_require_client_cert),
 	DEF(SET_BOOL, ssl_username_from_cert),
 	DEF(SET_BOOL, use_winbind),
@@ -3885,7 +3953,7 @@ static const struct auth_settings auth_default_settings = {
 	.verbose = FALSE,
 	.debug = FALSE,
 	.debug_passwords = FALSE,
-	.verbose_passwords = "no:plain:sha1",
+	.verbose_passwords = "no",
 	.ssl_require_client_cert = FALSE,
 	.ssl_username_from_cert = FALSE,
 	.use_winbind = FALSE,
@@ -3988,32 +4056,32 @@ buffer_t config_all_services_buf = {
 const struct setting_parser_info *all_default_roots[] = {
 	&master_service_setting_parser_info,
 	&master_service_ssl_setting_parser_info,
-	&doveadm_setting_parser_info, 
-	&mdbox_setting_parser_info, 
-	&maildir_setting_parser_info, 
-	&master_setting_parser_info, 
-	&imap_urlauth_login_setting_parser_info, 
 	&dict_setting_parser_info, 
-	&ssl_params_setting_parser_info, 
-	&replicator_setting_parser_info, 
+	&master_setting_parser_info, 
 	&pop3_login_setting_parser_info, 
-	&stats_setting_parser_info, 
-	&imap_urlauth_worker_setting_parser_info, 
-	&mbox_setting_parser_info, 
-	&login_setting_parser_info, 
-	&lmtp_setting_parser_info, 
-	&imap_login_setting_parser_info, 
-	&imap_setting_parser_info, 
+	&pop3_setting_parser_info, 
+	&imap_urlauth_login_setting_parser_info, 
+	&replicator_setting_parser_info, 
+	&lda_setting_parser_info, 
 	&imap_urlauth_setting_parser_info, 
 	&aggregator_setting_parser_info, 
-	&lda_setting_parser_info, 
-	&pop3_setting_parser_info, 
-	&mail_storage_setting_parser_info, 
-	&imapc_setting_parser_info, 
+	&ssl_params_setting_parser_info, 
+	&mdbox_setting_parser_info, 
+	&doveadm_setting_parser_info, 
 	&mail_user_setting_parser_info, 
-	&auth_setting_parser_info, 
+	&imap_login_setting_parser_info, 
+	&mail_storage_setting_parser_info, 
 	&director_setting_parser_info, 
+	&stats_setting_parser_info, 
+	&imapc_setting_parser_info, 
+	&maildir_setting_parser_info, 
+	&lmtp_setting_parser_info, 
+	&imap_urlauth_worker_setting_parser_info, 
+	&login_setting_parser_info, 
+	&auth_setting_parser_info, 
+	&mbox_setting_parser_info, 
 	&pop3c_setting_parser_info, 
+	&imap_setting_parser_info, 
 	NULL
 };
 const struct setting_parser_info *const *all_roots = all_default_roots;

@@ -115,6 +115,9 @@ These variables work only in Dovecot-auth:
 +------------+----------------+-----------------------------------------------+
 |            | login_domain   | For master user logins: Logged in domain      |
 +------------+----------------+-----------------------------------------------+
+|            | session_pid    | For user logins: The PID of the IMAP/POP3     |
+|            |                | process handling the session. (v2.2.7+)       |
++------------+----------------+-----------------------------------------------+
 
 These variables work only in 'login_log_format_elements' setting:
 
@@ -200,4 +203,4 @@ with '0' character if the string is shorter. For example %04i may return
 The modifiers are applied from left-to-right order, except the substring is
 always taken from the final string.
 
-(This file was created from the wiki on 2013-09-25 04:43)
+(This file was created from the wiki on 2013-12-19 04:43)

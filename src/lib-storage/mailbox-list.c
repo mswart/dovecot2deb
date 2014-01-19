@@ -12,6 +12,8 @@
 #include "time-util.h"
 #include "unichar.h"
 #include "settings-parser.h"
+#include "iostream-ssl.h"
+#include "fs-api.h"
 #include "imap-utf7.h"
 #include "mailbox-log.h"
 #include "mailbox-tree.h"
@@ -167,6 +169,8 @@ int mailbox_list_create(const char *driver, struct mail_namespace *ns,
 		p_strdup(list->pool, set->mailbox_dir_name);
 	list->set.alt_dir = p_strdup(list->pool, set->alt_dir);
 	list->set.alt_dir_nocheck = set->alt_dir_nocheck;
+	list->set.index_control_use_maildir_name =
+		set->index_control_use_maildir_name;
 
 	if (*set->mailbox_dir_name == '\0')
 		list->set.mailbox_dir_name = "";
@@ -323,7 +327,10 @@ mailbox_list_settings_parse_full(struct mail_user *user, const char *data,
 			dest = &set_r->maildir_name;
 		else if (strcmp(key, "MAILBOXDIR") == 0)
 			dest = &set_r->mailbox_dir_name;
-		else {
+		else if (strcmp(key, "FULLDIRNAME") == 0) {
+			set_r->index_control_use_maildir_name = TRUE;
+			dest = &set_r->maildir_name;
+		} else {
 			*error_r = t_strdup_printf("Unknown setting: %s", key);
 			return -1;
 		}
@@ -858,10 +865,15 @@ mailbox_list_get_permissions_internal(struct mailbox_list *list,
 		(void)mailbox_list_get_root_path(list, MAILBOX_LIST_PATH_TYPE_DIR,
 						 &path);
 	}
-	if (path == NULL) {
+
+	if (path == NULL ||
+	    (list->flags & MAILBOX_LIST_FLAG_NO_MAIL_FILES) != 0) {
 		/* no filesystem support in storage */
 	} else if (stat(path, &st) < 0) {
-		if (!ENOTFOUND(errno)) {
+		if (errno == EACCES) {
+			mailbox_list_set_critical(list, "%s",
+				mail_error_eacces_msg("stat", path));
+		} else if (!ENOTFOUND(errno)) {
 			mailbox_list_set_critical(list, "stat(%s) failed: %m",
 						  path);
 		} else if (list->mail_set->mail_debug) {
@@ -1045,7 +1057,9 @@ mailbox_list_try_mkdir_root_parent(struct mailbox_list *list,
 
 	/* get the first existing parent directory's permissions */
 	if (stat_first_parent(expanded, &root_dir, &st) < 0) {
-		*error_r = t_strdup_printf("stat(%s) failed: %m", root_dir);
+		*error_r = errno == EACCES ?
+			mail_error_eacces_msg("stat", root_dir) :
+			t_strdup_printf("stat(%s) failed: %m", root_dir);
 		return -1;
 	}
 
@@ -1797,4 +1811,26 @@ bool mailbox_list_set_error_from_errno(struct mailbox_list *list)
 
 	mailbox_list_set_error(list, error, error_string);
 	return TRUE;
+}
+
+int mailbox_list_init_fs(struct mailbox_list *list, const char *driver,
+			 const char *args, const char *root_dir,
+			 struct fs **fs_r, const char **error_r)
+{
+	struct fs_settings fs_set;
+	struct ssl_iostream_settings ssl_set;
+
+	memset(&ssl_set, 0, sizeof(ssl_set));
+	ssl_set.ca_dir = list->mail_set->ssl_client_ca_dir;
+	ssl_set.ca_file = list->mail_set->ssl_client_ca_file;
+
+	memset(&fs_set, 0, sizeof(fs_set));
+	fs_set.temp_file_prefix = mailbox_list_get_global_temp_prefix(list);
+	fs_set.base_dir = list->ns->user->set->base_dir;
+	fs_set.temp_dir = list->ns->user->set->mail_temp_dir;
+	fs_set.ssl_client_set = &ssl_set;
+	fs_set.root_path = root_dir;
+	fs_set.debug = list->ns->user->mail_debug;
+
+	return fs_init(driver, args, &fs_set, fs_r, error_r);
 }
