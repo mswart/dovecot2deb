@@ -47,7 +47,7 @@ Index: dovecot/src/config/all-settings.c
 @@ -1764,7 +1764,7 @@
  	.libexec_dir = PKG_LIBEXECDIR,
  	.instance_name = PACKAGE,
- 	.import_environment = "TZ" ENV_SYSTEMD ENV_GDB,
+ 	.import_environment = "TZ CORE_OUTOFMEM CORE_ERROR" ENV_SYSTEMD ENV_GDB,
 -	.protocols = "imap pop3 lmtp",
 +	.protocols = "",
  	.listen = "*, ::",
@@ -60,7 +60,7 @@ Index: dovecot/src/master/master-settings.c
 @@ -213,7 +213,7 @@
  	.libexec_dir = PKG_LIBEXECDIR,
  	.instance_name = PACKAGE,
- 	.import_environment = "TZ" ENV_SYSTEMD ENV_GDB,
+ 	.import_environment = "TZ CORE_OUTOFMEM CORE_ERROR" ENV_SYSTEMD ENV_GDB,
 -	.protocols = "imap pop3 lmtp",
 +	.protocols = "",
  	.listen = "*, ::",
