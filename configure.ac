@@ -2,8 +2,8 @@ AC_PREREQ([2.59])
 
 # Be sure to update ABI version also if anything changes that might require
 # recompiling plugins. Most importantly that means if any structs are changed.
-AC_INIT([Dovecot],[2.2.6],[dovecot@dovecot.org])
-AC_DEFINE_UNQUOTED([DOVECOT_ABI_VERSION], "2.2.ABIv6($PACKAGE_VERSION)", [Dovecot ABI version])
+AC_INIT([Dovecot],[2.2.10],[dovecot@dovecot.org])
+AC_DEFINE_UNQUOTED([DOVECOT_ABI_VERSION], "2.2.ABIv10($PACKAGE_VERSION)", [Dovecot ABI version])
 
 AC_CONFIG_SRCDIR([src])
 
@@ -178,6 +178,11 @@ AC_ARG_WITH(bzlib,
 AS_HELP_STRING([--with-bzlib], [Build with bzlib compression support]),
   TEST_WITH(bzlib, $withval),
   want_bzlib=auto)
+
+AC_ARG_WITH(lzma,
+AS_HELP_STRING([--with-lzma], [Build with LZMA compression support]),
+  TEST_WITH(lzma, $withval),
+  want_lzma=auto)
 
 AC_ARG_WITH(libcap,
 AS_HELP_STRING([--with-libcap], [Build with libcap support (Dropping capabilities).]),
@@ -2282,6 +2287,15 @@ if test $want_mysql != no; then
 				  mysql_set_ssl(0, 0, 0, 0, 0, 0);
 				], [
 					AC_DEFINE(HAVE_MYSQL_SSL_CIPHER,, Define if your MySQL library supports setting cipher)
+
+					AC_TRY_COMPILE([
+					  $ssl_define
+					  #include <mysql.h>
+					], [
+					  int i = MYSQL_OPT_SSL_VERIFY_SERVER_CERT;
+					], [
+						AC_DEFINE(HAVE_MYSQL_SSL_VERIFY_SERVER_CERT,, Define if your MySQL library supports verifying the name in the SSL certificate)
+					])
 				])
 			])
 			
@@ -2523,10 +2537,14 @@ LINKED_STORAGE_LIBS=
 
 mailbox_list_drivers="maildir imapdir fs index none shared"
 have_sdbox=no
+have_mdbox=no
 for storage in $mail_storages; do
   LINKED_STORAGE_LIBS="$LINKED_STORAGE_LIBS `eval echo \\$${storage}_libs`"
   if test $storage = sdbox; then
     have_sdbox=yes
+  fi
+  if test $storage = mdbox; then
+    have_mdbox=yes
   fi
   if test $storage = sdbox || test $storage = mdbox; then
     LINKED_STORAGE_LIBS="$LINKED_STORAGE_LIBS $dbox_common_libs"
@@ -2545,6 +2563,9 @@ AC_DEFINE_UNQUOTED(MAIL_STORAGES, "$mail_storages", List of compiled in mail sto
 if test $have_sdbox = yes; then
   # create alias for sdbox
   mail_storages="$mail_storages dbox"
+fi
+if test $have_mdbox = yes; then
+  mail_storages="$mail_storages mdbox_deleted"
 fi
 
 dnl **
@@ -2647,6 +2668,25 @@ if test "$want_bzlib" != "no"; then
   ], [
     if test "$want_bzlib" = "yes"; then
       AC_ERROR([Can't build with bzlib support: bzlib.h not found])
+    fi
+  ])
+fi
+
+if test "$want_lzma" != "no"; then
+  AC_CHECK_HEADER(lzma.h, [
+    AC_CHECK_LIB(lzma, lzma_stream_decoder, [
+      have_lzma=yes
+      have_compress_lib=yes
+      AC_DEFINE(HAVE_LZMA,, Define if you have lzma library)
+      COMPRESS_LIBS="$COMPRESS_LIBS -llzma"
+    ], [
+      if test "$want_lzma" = "yes"; then
+	AC_ERROR([Can't build with lzma support: liblzma not found])
+      fi
+    ])
+  ], [
+    if test "$want_lzma" = "yes"; then
+      AC_ERROR([Can't build with lzma support: lzma.h not found])
     fi
   ])
 fi
@@ -2877,6 +2917,7 @@ src/plugins/fts-solr/Makefile
 src/plugins/fts-squat/Makefile
 src/plugins/lazy-expunge/Makefile
 src/plugins/listescape/Makefile
+src/plugins/mail-filter/Makefile
 src/plugins/mail-log/Makefile
 src/plugins/mailbox-alias/Makefile
 src/plugins/notify/Makefile

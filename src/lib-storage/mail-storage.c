@@ -118,7 +118,7 @@ mail_storage_set_autodetection(const char **data, const char **driver)
 
 	/* check if data is in driver:data format (eg. mbox:~/mail) */
 	p = *data;
-	while (i_isalnum(*p)) p++;
+	while (i_isalnum(*p) || *p == '_') p++;
 
 	if (*p == ':' && p != *data) {
 		/* no autodetection if the storage driver is given. */
@@ -664,8 +664,18 @@ struct mailbox *mailbox_alloc(struct mailbox_list *list, const char *vname,
 		   server's internal configuration. */
 		if (vname[5] == '\0')
 			vname = "INBOX";
-		else if (vname[5] == mail_namespace_get_sep(list->ns))
+		else if (vname[5] != mail_namespace_get_sep(list->ns))
+			/* not INBOX prefix */ ;
+		else if (strncasecmp(list->ns->prefix, vname, 6) == 0 &&
+			 strncmp(list->ns->prefix, "INBOX", 5) != 0) {
+			mailbox_list_set_critical(list,
+				"Invalid server configuration: "
+				"Namespace prefix=%s must be uppercase INBOX",
+				list->ns->prefix);
+			open_error = MAIL_ERROR_TEMP;
+		} else {
 			vname = t_strconcat("INBOX", vname + 5, NULL);
+		}
 	}
 
 	T_BEGIN {
@@ -1492,6 +1502,8 @@ mailbox_get_status_set_defaults(struct mailbox *box,
 		status_r->have_guids = TRUE;
 	if ((box->storage->class_flags & MAIL_STORAGE_CLASS_FLAG_HAVE_MAIL_SAVE_GUIDS) != 0)
 		status_r->have_save_guids = TRUE;
+	if ((box->storage->class_flags & MAIL_STORAGE_CLASS_FLAG_HAVE_MAIL_GUID128) != 0)
+		status_r->have_only_guid128 = TRUE;
 }
 
 int mailbox_get_status(struct mailbox *box,

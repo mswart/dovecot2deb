@@ -277,11 +277,16 @@ struct mailbox_status {
 	unsigned int allow_new_keywords:1;
 	/* Modseqs aren't permanent (index is in memory) (STATUS_HIGHESTMODSEQ) */
 	unsigned int nonpermanent_modseqs:1;
+	/* Modseq tracking has never been enabled for this mailbox
+	   yet. (STATUS_HIGHESTMODSEQ) */
+	unsigned int no_modseq_tracking:1;
 
 	/* Messages have GUIDs (always set) */
 	unsigned int have_guids:1;
 	/* mailbox_save_set_guid() works (always set) */
 	unsigned int have_save_guids:1;
+	/* GUIDs are always 128bit (always set) */
+	unsigned int have_only_guid128:1;
 };
 
 struct mailbox_cache_field {
@@ -870,7 +875,10 @@ int mail_get_headers(struct mail *mail, const char *field,
    Do not use for structured fields (see mail_get_first_header_utf8()). */
 int mail_get_headers_utf8(struct mail *mail, const char *field,
 			  const char *const **value_r);
-/* Returns stream containing specified headers. */
+/* Returns stream containing specified headers. The returned stream will be
+   automatically freed when the mail is closed, or when another
+   mail_get_header_stream() call is made (so you can't have multiple header
+   streams open at the same time). */
 int mail_get_header_stream(struct mail *mail,
 			   struct mailbox_header_lookup_ctx *headers,
 			   struct istream **stream_r);

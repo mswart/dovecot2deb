@@ -98,7 +98,7 @@ static const struct {
 	  .chr = 'B',
 	  .required_keys = "mailbox_guid uid_validity uid_next messages_count "
 		"first_recent_uid highest_modseq highest_pvt_modseq",
-	  .optional_keys = "mailbox_lost cache_fields have_guids have_save_guids"
+	  .optional_keys = "mailbox_lost cache_fields have_guids have_save_guids have_only_guid128"
 	},
 	{ .name = "mailbox_attribute",
 	  .chr = 'A',
@@ -174,8 +174,8 @@ static int dsync_ibc_stream_read_mail_stream(struct dsync_ibc_stream *ibc)
 	} while (i_stream_read(ibc->value_input) > 0);
 	if (ibc->value_input->eof) {
 		if (ibc->value_input->stream_errno != 0) {
-			errno = ibc->value_input->stream_errno;
-			i_error("dsync(%s): read() failed: %m", ibc->name);
+			i_error("dsync(%s): read() failed: %s", ibc->name,
+				i_stream_get_error(ibc->value_input));
 			dsync_ibc_stream_stop(ibc);
 			return -1;
 		}
@@ -246,8 +246,9 @@ static int dsync_ibc_stream_send_value_stream(struct dsync_ibc_stream *ibc)
 	i_assert(ret == -1);
 
 	if (ibc->value_output->stream_errno != 0) {
-		i_error("dsync(%s): read(%s) failed: %m",
-			ibc->name, i_stream_get_name(ibc->value_output));
+		i_error("dsync(%s): read(%s) failed: %s",
+			ibc->name, i_stream_get_name(ibc->value_output),
+			i_stream_get_error(ibc->value_output));
 		dsync_ibc_stream_stop(ibc);
 		return -1;
 	}
@@ -371,8 +372,8 @@ static int dsync_ibc_stream_next_line(struct dsync_ibc_stream *ibc,
 			return -1;
 		error = t_str_new(128);
 		if (ibc->input->stream_errno != 0) {
-			errno = ibc->input->stream_errno;
-			str_printfa(error, "read(%s) failed: %m", ibc->name);
+			str_printfa(error, "read(%s) failed: %s", ibc->name,
+				    i_stream_get_error(ibc->input));
 		} else {
 			i_assert(ibc->input->eof);
 			str_printfa(error, "read(%s) failed: EOF", ibc->name);
@@ -1177,6 +1178,8 @@ dsync_ibc_stream_send_mailbox(struct dsync_ibc *_ibc,
 		dsync_serializer_encode_add(encoder, "have_guids", "");
 	if (dsync_box->have_save_guids)
 		dsync_serializer_encode_add(encoder, "have_save_guids", "");
+	if (dsync_box->have_only_guid128)
+		dsync_serializer_encode_add(encoder, "have_only_guid128", "");
 	dsync_serializer_encode_add(encoder, "uid_validity",
 				    dec2str(dsync_box->uid_validity));
 	dsync_serializer_encode_add(encoder, "uid_next",
@@ -1280,6 +1283,8 @@ dsync_ibc_stream_recv_mailbox(struct dsync_ibc *_ibc,
 	if (dsync_deserializer_decode_try(decoder, "have_save_guids", &value) ||
 	    (box->have_guids && ibc->minor_version < DSYNC_PROTOCOL_MINOR_HAVE_SAVE_GUID))
 		box->have_save_guids = TRUE;
+	if (dsync_deserializer_decode_try(decoder, "have_only_guid128", &value))
+		box->have_only_guid128 = TRUE;
 	value = dsync_deserializer_decode_get(decoder, "uid_validity");
 	if (str_to_uint32(value, &box->uid_validity) < 0) {
 		dsync_ibc_input_error(ibc, decoder, "Invalid uid_validity");

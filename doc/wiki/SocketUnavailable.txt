@@ -13,6 +13,22 @@ This means that there are more imap-login processes trying to connect to the
 kernel's connection listener queue got full and it started rejecting further
 connections. So what can be done about it?
 
+Dovecot v2.2 bug
+----------------
+
+Dovecot v2.2.0 - v2.2.6 were attempting to optimize host.domain lookups by
+doing them only once in the master process. Unfortunately they were actually
+doing the lookup every time when creating a new process. In some configuration
+this lookup could have done a somewhat slow DNS lookup, causing the process
+creation to become very slow and triggering this message.
+
+The fix is in v2.2.7 and you can also workaround this:
+
+ * Add to dovecof.conf: 'import_environment = TZ DEBUG_OUTOFMEM
+   DOVECOT_HOSTDOMAIN'
+ * Before "dovecot" binary is started, run: 'export
+   DOVECOT_HOSTDOMAIN=mailserver.example.com' (of course changing the value)
+
 Wrong service settings
 ----------------------
 
@@ -52,4 +68,4 @@ the listener queue size, but uses a hardcoded upper limit of 511. Most OSes use
 an even lower limit, typically 128. In Linux you can increase this from
 '/proc/sys/net/core/somaxconn'.
 
-(This file was created from the wiki on 2013-09-25 04:42)
+(This file was created from the wiki on 2013-12-19 04:42)

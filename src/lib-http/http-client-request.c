@@ -50,12 +50,9 @@ http_client_request_debug(struct http_client_request *req,
 /*
  * Request
  */
-static void http_client_request_remove_delayed(struct http_client_request *req);
 
-#undef http_client_request
-struct http_client_request *
-http_client_request(struct http_client *client,
-		    const char *method, const char *host, const char *target,
+static struct http_client_request *
+http_client_request_new(struct http_client *client, const char *method, 
 		    http_client_request_callback_t *callback, void *context)
 {
 	pool_t pool;
@@ -67,15 +64,74 @@ http_client_request(struct http_client *client,
 	req->refcount = 1;
 	req->client = client;
 	req->method = p_strdup(pool, method);
-	req->hostname = p_strdup(pool, host);
-	req->port = HTTP_DEFAULT_PORT;
-	req->target = (target == NULL ? "/" : p_strdup(pool, target));
 	req->callback = callback;
 	req->context = context;
-	req->headers = str_new(default_pool, 256);
 	req->date = (time_t)-1;
 
 	req->state = HTTP_REQUEST_STATE_NEW;
+	return req;
+}
+
+#undef http_client_request
+struct http_client_request *
+http_client_request(struct http_client *client,
+		    const char *method, const char *host, const char *target,
+		    http_client_request_callback_t *callback, void *context)
+{
+	struct http_client_request *req;
+
+	req = http_client_request_new(client, method, callback, context);
+	req->origin_url.host_name = p_strdup(req->pool, host);
+	req->target = (target == NULL ? "/" : p_strdup(req->pool, target));
+	return req;
+}
+
+#undef http_client_request_url
+struct http_client_request *
+http_client_request_url(struct http_client *client,
+		    const char *method, const struct http_url *target_url,
+		    http_client_request_callback_t *callback, void *context)
+{
+	struct http_client_request *req;
+
+	req = http_client_request_new(client, method, callback, context);
+	http_url_copy_authority(req->pool, &req->origin_url, target_url);
+	req->target = p_strdup(req->pool, http_url_create_target(target_url));
+	return req;
+}
+
+#undef http_client_request_connect
+struct http_client_request *
+http_client_request_connect(struct http_client *client,
+		    const char *host, in_port_t port,
+		    http_client_request_callback_t *callback,
+				void *context)
+{
+	struct http_client_request *req;
+
+	req = http_client_request_new(client, "CONNECT", callback, context);
+	req->origin_url.host_name = p_strdup(req->pool, host);
+	req->origin_url.port = port;
+	req->origin_url.have_port = TRUE;
+	req->connect_tunnel = TRUE;
+	req->target = req->origin_url.host_name;
+	return req;
+}
+
+#undef http_client_request_connect_ip
+struct http_client_request *
+http_client_request_connect_ip(struct http_client *client,
+		    const struct ip_addr *ip, in_port_t port,
+		    http_client_request_callback_t *callback,
+				void *context)
+{
+	struct http_client_request *req;
+	const char *hostname = net_ip2addr(ip);
+
+	req = http_client_request_connect
+		(client, hostname, port, callback, context);
+	req->origin_url.host_ip = *ip;
+	req->origin_url.have_host_ip = TRUE;
 	return req;
 }
 
@@ -109,13 +165,14 @@ void http_client_request_unref(struct http_client_request **_req)
 	if (client->pending_requests == 0 && client->ioloop != NULL)
 		io_loop_stop(client->ioloop);
 
-	if (req->to_delayed_error != NULL)
-		http_client_request_remove_delayed(req);
+	if (req->delayed_error != NULL)
+		http_client_host_remove_request_error(req->host, req);
 	if (req->payload_input != NULL)
 		i_stream_unref(&req->payload_input);
 	if (req->payload_output != NULL)
 		o_stream_unref(&req->payload_output);
-	str_free(&req->headers);
+	if (req->headers != NULL)
+		str_free(&req->headers);
 	pool_unref(&req->pool);
 	*_req = NULL;
 }
@@ -124,21 +181,15 @@ void http_client_request_set_port(struct http_client_request *req,
 	in_port_t port)
 {
 	i_assert(req->state == HTTP_REQUEST_STATE_NEW);
-	req->port = port;
+	req->origin_url.port = port;
+	req->origin_url.have_port = TRUE;
 }
 
 void http_client_request_set_ssl(struct http_client_request *req,
 	bool ssl)
 {
 	i_assert(req->state == HTTP_REQUEST_STATE_NEW);
-	if (ssl) {
-		if (!req->ssl && req->port == HTTP_DEFAULT_PORT)
-			req->port = HTTPS_DEFAULT_PORT;
-	} else {
-		if (req->ssl && req->port == HTTPS_DEFAULT_PORT)
-			req->port = HTTP_DEFAULT_PORT;
-	}
-	req->ssl = ssl;
+	req->origin_url.have_ssl = ssl;
 }
 
 void http_client_request_set_urgent(struct http_client_request *req)
@@ -175,7 +226,13 @@ void http_client_request_add_header(struct http_client_request *req,
 		if (strcasecmp(key, "Transfer-Encoding") == 0)
 			req->have_hdr_body_spec = TRUE;
 		break;
+	case 'u': case 'U':
+		if (strcasecmp(key, "User-Agent") == 0)
+			req->have_hdr_user_agent = TRUE;
+		break;
 	}
+	if (req->headers == NULL)
+		req->headers = str_new(default_pool, 256);
 	str_printfa(req->headers, "%s: %s\r\n", key, value);
 }
 
@@ -198,8 +255,9 @@ void http_client_request_set_payload(struct http_client_request *req,
 	req->payload_input = input;
 	if ((ret = i_stream_get_size(input, TRUE, &req->payload_size)) <= 0) {
 		if (ret < 0) {
-			i_error("i_stream_get_size(%s) failed: %m",
-				i_stream_get_name(input));
+			i_error("i_stream_get_size(%s) failed: %s",
+				i_stream_get_name(input),
+				i_stream_get_error(input));
 		}
 		req->payload_size = 0;
 		req->payload_chunked = TRUE;
@@ -211,23 +269,122 @@ void http_client_request_set_payload(struct http_client_request *req,
 		req->payload_sync = TRUE;
 }
 
+void http_client_request_delay_until(struct http_client_request *req,
+	time_t time)
+{
+	req->release_time.tv_sec = time;
+	req->release_time.tv_usec = 0;
+}
+
+void http_client_request_delay(struct http_client_request *req,
+	time_t seconds)
+{
+	req->release_time = ioloop_timeval;
+	req->release_time.tv_sec += seconds;
+}
+
+int http_client_request_delay_from_response(struct http_client_request *req,
+	const struct http_response *response)
+{
+	time_t retry_after = response->retry_after;
+	unsigned int max;
+
+	if (retry_after == (time_t)-1)
+		return 0;  /* no delay */
+	if (retry_after < ioloop_time)
+		return 0;  /* delay already expired */
+	max = (req->client->set.max_auto_retry_delay == 0 ?
+		req->client->set.request_timeout_msecs / 1000 :
+		req->client->set.max_auto_retry_delay);
+	if ((unsigned int)(retry_after - ioloop_time) > max)
+		return -1; /* delay too long */
+	req->release_time.tv_sec = retry_after;
+	req->release_time.tv_usec = 0;
+	return 1;    /* valid delay */
+}
+
 enum http_request_state
 http_client_request_get_state(struct http_client_request *req)
 {
 	return req->state;
 }
 
+enum http_response_payload_type
+http_client_request_get_payload_type(struct http_client_request *req)
+{
+	/* https://tools.ietf.org/html/draft-ietf-httpbis-p1-messaging-23
+	     Section 3.3:
+
+	   The presence of a message body in a response depends on both the
+	   request method to which it is responding and the response status code.
+	   Responses to the HEAD request method never include a message body
+	   because the associated response header fields, if present, indicate only
+	   what their values would have been if the request method had been GET
+	   2xx (Successful) responses to CONNECT switch to tunnel mode instead of
+	   having a message body (Section 4.3.6 of [Part2]).
+	 */
+	if (strcmp(req->method, "HEAD") == 0)
+		return HTTP_RESPONSE_PAYLOAD_TYPE_NOT_PRESENT;
+	if (strcmp(req->method, "CONNECT") == 0)
+		return HTTP_RESPONSE_PAYLOAD_TYPE_ONLY_UNSUCCESSFUL;
+	return HTTP_RESPONSE_PAYLOAD_TYPE_ALLOWED;
+}
+
 static void http_client_request_do_submit(struct http_client_request *req)
 {
+	struct http_client *client = req->client;
 	struct http_client_host *host;
+	const struct http_url *proxy_url = client->set.proxy_url;
+	const char *authority, *target;
 
 	i_assert(req->state == HTTP_REQUEST_STATE_NEW);
+
+	authority = http_url_create_authority(&req->origin_url);
+	if (req->connect_tunnel) {
+		/* connect requests require authority form for request target */
+		target = authority;
+	} else {
+		/* absolute target url */
+		target = t_strconcat
+			(http_url_create_host(&req->origin_url), req->target, NULL);
+	}
+
+	/* determine what host to contact to submit this request */
+	if (proxy_url != NULL) {
+		if (req->origin_url.have_ssl && !client->set.no_ssl_tunnel &&
+			!req->connect_tunnel) {
+			req->host_url = &req->origin_url;  /* tunnel to origin server */
+			req->ssl_tunnel = TRUE;
+		} else {
+			req->host_url = proxy_url;         /* proxy server */
+		}
+	} else {
+		req->host_url = &req->origin_url;    /* origin server */
+	}
 
 	/* use submission date if no date is set explicitly */
 	if (req->date == (time_t)-1)
 		req->date = ioloop_time;
 	
-	host = http_client_host_get(req->client, req->hostname);
+	/* prepare value for Host header */
+	req->authority = p_strdup(req->pool, authority);
+
+	/* debug label */
+	req->label = p_strdup_printf(req->pool, "[%s %s]", req->method, target);
+
+	/* update request target */
+	if (req->connect_tunnel || proxy_url != NULL)
+		req->target = p_strdup(req->pool, target);
+
+	if (proxy_url == NULL) {
+		/* if we don't have a proxy, CONNECT requests are handled by creating
+		   the requested connection directly */
+		req->connect_direct = req->connect_tunnel;
+		if (req->connect_direct)
+			req->urgent = TRUE;
+	}
+
+	host = http_client_host_get(req->client, req->host_url);
 	req->state = HTTP_REQUEST_STATE_QUEUED;
 
 	http_client_host_submit_request(host, req);
@@ -235,10 +392,10 @@ static void http_client_request_do_submit(struct http_client_request *req)
 
 void http_client_request_submit(struct http_client_request *req)
 {
-	http_client_request_debug(req, "Submitted");
 	req->client->pending_requests++;
 
 	http_client_request_do_submit(req);
+	http_client_request_debug(req, "Submitted");
 	req->submitted = TRUE;
 }
 
@@ -311,9 +468,9 @@ http_client_request_continue_payload(struct http_client_request **_req,
 		}
 	}
 
-	current_ioloop = prev_ioloop;
+	io_loop_set_current(prev_ioloop);
 	http_client_switch_ioloop(client);
-	current_ioloop = client->ioloop;
+	io_loop_set_current(client->ioloop);
 	io_loop_destroy(&client->ioloop);
 
 	if (req->state == HTTP_REQUEST_STATE_FINISHED)
@@ -373,14 +530,25 @@ int http_client_request_send_more(struct http_client_request *req,
 	o_stream_set_max_buffer_size(output, (size_t)-1);
 
 	if (req->payload_input->stream_errno != 0) {
+		/* the payload stream assigned to this request is broken,
+		   fail this the request immediately */
+		http_client_request_send_error(req,
+			HTTP_CLIENT_REQUEST_ERROR_BROKEN_PAYLOAD,
+			"Broken payload stream");
+
+		/* we're in the middle of sending a request, so the connection
+		   will also have to be aborted */
 		errno = req->payload_input->stream_errno;
-		*error_r = t_strdup_printf("read(%s) failed: %m",
-					   i_stream_get_name(req->payload_input));
+		*error_r = t_strdup_printf("read(%s) failed: %s",
+					   i_stream_get_name(req->payload_input),
+					   i_stream_get_error(req->payload_input));
 		ret = -1;
 	} else if (output->stream_errno != 0) {
+		/* failed to send request */
 		errno = output->stream_errno;
-		*error_r = t_strdup_printf("write(%s) failed: %m",
-					   o_stream_get_name(output));
+		*error_r = t_strdup_printf("write(%s) failed: %s",
+					   o_stream_get_name(output),
+					   o_stream_get_error(output));
 		ret = -1;
 	} else {
 		i_assert(ret >= 0);
@@ -389,6 +557,7 @@ int http_client_request_send_more(struct http_client_request *req,
 	if (ret < 0 || i_stream_is_eof(req->payload_input)) {
 		if (!req->payload_chunked &&
 			req->payload_input->v_offset - req->payload_offset != req->payload_size) {
+			*error_r = "stream input size changed [BUG]";
 			i_error("stream input size changed"); //FIXME
 			return -1;
 		}
@@ -438,11 +607,7 @@ static int http_client_request_send_real(struct http_client_request *req,
 	   http_client_request_add_header() */
 	if (!req->have_hdr_host) {
 		str_append(rtext, "Host: ");
-		str_append(rtext, req->hostname);
-		if ((!req->ssl &&req->port != HTTP_DEFAULT_PORT) ||
-			(req->ssl && req->port != HTTPS_DEFAULT_PORT)) {
-			str_printfa(rtext, ":%u", req->port);
-		}
+		str_append(rtext, req->authority);
 		str_append(rtext, "\r\n");
 	}
 	if (!req->have_hdr_date) {
@@ -450,34 +615,53 @@ static int http_client_request_send_real(struct http_client_request *req,
 		str_append(rtext, http_date_create(req->date));
 		str_append(rtext, "\r\n");
 	}
+	if (!req->have_hdr_user_agent && req->client->set.user_agent != NULL) {
+		str_printfa(rtext, "User-Agent: %s\r\n",
+			    req->client->set.user_agent);
+	}
 	if (!req->have_hdr_expect && req->payload_sync) {
 		str_append(rtext, "Expect: 100-continue\r\n");
 	}
-	if (req->payload_chunked) {
-		// FIXME: can't do this for a HTTP/1.0 server
-		if (!req->have_hdr_body_spec)
-			str_append(rtext, "Transfer-Encoding: chunked\r\n");
-		req->payload_output =
-			http_transfer_chunked_ostream_create(output);
-	} else if (req->payload_input != NULL) {
-		/* send Content-Length if we have specified a payload,
-		   even if it's 0 bytes. */
-		if (!req->have_hdr_body_spec) {
-			str_printfa(rtext, "Content-Length: %"PRIuUOFF_T"\r\n",
-				req->payload_size);
+	if (req->payload_input != NULL) {
+		if (req->payload_chunked) {
+			// FIXME: can't do this for a HTTP/1.0 server
+			if (!req->have_hdr_body_spec)
+				str_append(rtext, "Transfer-Encoding: chunked\r\n");
+			req->payload_output =
+				http_transfer_chunked_ostream_create(output);
+		} else {
+			/* send Content-Length if we have specified a payload,
+				 even if it's 0 bytes. */
+			if (!req->have_hdr_body_spec) {
+				str_printfa(rtext, "Content-Length: %"PRIuUOFF_T"\r\n",
+					req->payload_size);
+			}
+			req->payload_output = output;
+			o_stream_ref(output);
 		}
-		req->payload_output = output;
-		o_stream_ref(output);
 	}
-	if (!req->have_hdr_connection)
+	if (!req->have_hdr_connection && req->host_url == &req->origin_url) {
+		/* https://tools.ietf.org/html/rfc2068
+		     Section 19.7.1:
+
+		   A client MUST NOT send the Keep-Alive connection token to a proxy
+		   server as HTTP/1.0 proxy servers do not obey the rules of HTTP/1.1
+		   for parsing the Connection header field.
+		 */
 		str_append(rtext, "Connection: Keep-Alive\r\n");
+	}
 
 	/* request line + implicit headers */
 	iov[0].iov_base = str_data(rtext);
 	iov[0].iov_len = str_len(rtext);	
 	/* explicit headers */
-	iov[1].iov_base = str_data(req->headers);
-	iov[1].iov_len = str_len(req->headers);
+	if (req->headers != NULL) {
+		iov[1].iov_base = str_data(req->headers);
+		iov[1].iov_len = str_len(req->headers);
+	} else {
+		iov[1].iov_base = "";
+		iov[1].iov_len = 0;
+	}
 	/* end of header */
 	iov[2].iov_base = "\r\n";
 	iov[2].iov_len = 2;
@@ -485,8 +669,9 @@ static int http_client_request_send_real(struct http_client_request *req,
 	req->state = HTTP_REQUEST_STATE_PAYLOAD_OUT;
 	o_stream_cork(output);
 	if (o_stream_sendv(output, iov, N_ELEMENTS(iov)) < 0) {
-		*error_r = t_strdup_printf("write(%s) failed: %m",
-					   o_stream_get_name(output));
+		*error_r = t_strdup_printf("write(%s) failed: %s",
+					   o_stream_get_name(output),
+					   o_stream_get_error(output));
 		ret = -1;
 	}
 
@@ -535,17 +720,23 @@ bool http_client_request_callback(struct http_client_request *req,
 			req->callback = callback;
 			http_client_request_resubmit(req);
 			return FALSE;
+		} else {
+			/* release payload early (prevents server/client deadlock in proxy) */
+			if (req->payload_input != NULL)
+				i_stream_unref(&req->payload_input);
 		}
 	}
 	return TRUE;
 }
 
-static void
+void
 http_client_request_send_error(struct http_client_request *req,
 			       unsigned int status, const char *error)
 {
 	http_client_request_callback_t *callback;
 
+	if (req->state >= HTTP_REQUEST_STATE_FINISHED)
+		return;
 	req->state = HTTP_REQUEST_STATE_ABORTED;
 
 	callback = req->callback;
@@ -555,48 +746,34 @@ http_client_request_send_error(struct http_client_request *req,
 
 		http_response_init(&response, status, error);
 		(void)callback(&response, req->context);
+
+		/* release payload early (prevents server/client in proxy) */
+		if (req->payload_input != NULL)
+			i_stream_unref(&req->payload_input);
 	}
 }
 
-static void http_client_request_remove_delayed(struct http_client_request *req)
+void http_client_request_error_delayed(struct http_client_request **_req)
 {
-	struct http_client_request *const *reqs;
-	unsigned int i, count;
+	struct http_client_request *req = *_req;
 
+	i_assert(req->delayed_error != NULL && req->delayed_error_status != 0);
 	http_client_request_send_error(req, req->delayed_error_status,
 				       req->delayed_error);
-
-	timeout_remove(&req->to_delayed_error);
-
-	reqs = array_get(&req->host->delayed_failing_requests, &count);
-	for (i = 0; i < count; i++) {
-		if (reqs[i] == req) {
-			array_delete(&req->host->delayed_failing_requests, i, 1);
-			return;
-		}
-	}
-	i_unreached();
-}
-
-static void http_client_request_error_delayed(struct http_client_request *req)
-{
-	http_client_request_remove_delayed(req);
-	http_client_request_unref(&req);
+	http_client_request_unref(_req);
 }
 
 void http_client_request_error(struct http_client_request *req,
 	unsigned int status, const char *error)
 {
-	if (!req->submitted) {
+	if (!req->submitted && req->state < HTTP_REQUEST_STATE_FINISHED) {
 		/* we're still in http_client_request_submit(). delay
 		   reporting the error, so the caller doesn't have to handle
 		   immediate callbacks. */
 		i_assert(req->delayed_error == NULL);
 		req->delayed_error = p_strdup(req->pool, error);
 		req->delayed_error_status = status;
-		req->to_delayed_error = timeout_add_short(0,
-			http_client_request_error_delayed, req);
-		array_append(&req->host->delayed_failing_requests, &req, 1);
+		http_client_host_delay_request_error(req->host, req);
 	} else {
 		http_client_request_send_error(req, status, error);
 		http_client_request_unref(&req);
@@ -611,8 +788,8 @@ void http_client_request_abort(struct http_client_request **_req)
 		return;
 	req->callback = NULL;
 	req->state = HTTP_REQUEST_STATE_ABORTED;
-	if (req->host != NULL)
-		http_client_host_drop_request(req->host, req);
+	if (req->queue != NULL)
+		http_client_queue_drop_request(req->queue, req);
 	http_client_request_unref(_req);
 }
 
@@ -637,8 +814,9 @@ void http_client_request_redirect(struct http_client_request *req,
 	unsigned int status, const char *location)
 {
 	struct http_url *url;
-	const char *error, *target;
-	unsigned int newport;
+	const char *error, *target, *origin_url;
+
+	i_assert(!req->payload_wait);
 
 	/* parse URL */
 	if (http_url_parse(location, NULL, 0,
@@ -679,19 +857,26 @@ void http_client_request_redirect(struct http_client_request *req,
 	if (req->payload_output != NULL)
 		o_stream_unref(&req->payload_output);
 
-	newport = (url->have_port ? url->port : (url->have_ssl ? 443 : 80));
 	target = http_url_create_target(url);
 
-	http_client_request_debug(req, "Redirecting to http%s://%s:%u%s",
-		(url->have_ssl ? "s" : ""), url->host_name, newport, target);
-
-	// FIXME: handle literal IP specially (avoid duplicate parsing)
-	req->host = NULL;
-	req->conn = NULL;
-	req->hostname = p_strdup(req->pool, url->host_name);
-	req->port = newport;
+	http_url_copy(req->pool, &req->origin_url, url);
 	req->target = p_strdup(req->pool, target);
-	req->ssl = url->have_ssl;
+	if (req->host_url == &req->origin_url) {
+		req->authority =
+			p_strdup(req->pool, http_url_create_authority(req->host_url));
+	}
+	
+	req->host = NULL;
+	req->queue = NULL;
+	req->conn = NULL;
+
+	origin_url = http_url_create(&req->origin_url);
+
+	http_client_request_debug(req, "Redirecting to %s%s",
+		origin_url, target);
+
+	req->label = p_strdup_printf(req->pool, "[%s %s%s]",
+		req->method, origin_url, req->target);
 
 	/* https://tools.ietf.org/html/draft-ietf-httpbis-p2-semantics-21
 	      Section-7.4.4
@@ -720,6 +905,8 @@ void http_client_request_redirect(struct http_client_request *req,
 
 void http_client_request_resubmit(struct http_client_request *req)
 {
+	i_assert(!req->payload_wait);
+
 	http_client_request_debug(req, "Resubmitting request");
 
 	/* rewind payload stream */
@@ -784,4 +971,12 @@ void http_client_request_set_destroy_callback(struct http_client_request *req,
 {
 	req->destroy_callback = callback;
 	req->destroy_context = context;
+}
+
+void http_client_request_start_tunnel(struct http_client_request *req,
+	struct http_client_tunnel *tunnel)
+{
+	i_assert(req->state == HTTP_REQUEST_STATE_GOT_RESPONSE);
+
+	http_client_connection_start_tunnel(&req->conn, tunnel);
 }
