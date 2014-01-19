@@ -184,6 +184,9 @@ dsync_brain_sync_mailbox_init_remote(struct dsync_brain *brain,
 	    (remote_dsync_box->have_save_guids ||
 	     (brain->backup_recv && remote_dsync_box->have_guids)))
 		import_flags |= DSYNC_MAILBOX_IMPORT_FLAG_MAILS_HAVE_GUIDS;
+	if (brain->local_dsync_box.have_only_guid128 ||
+	    remote_dsync_box->have_only_guid128)
+		import_flags |= DSYNC_MAILBOX_IMPORT_FLAG_MAILS_USE_GUID128;
 
 	brain->box_importer = brain->backup_send ? NULL :
 		dsync_mailbox_import_init(brain->box, brain->log_scan,
@@ -314,6 +317,7 @@ static int dsync_box_get(struct mailbox *box, struct dsync_mailbox *dsync_box_r)
 	dsync_box_r->cache_fields = *metadata.cache_fields;
 	dsync_box_r->have_guids = status.have_guids;
 	dsync_box_r->have_save_guids = status.have_save_guids;
+	dsync_box_r->have_only_guid128 = status.have_only_guid128;
 	return 1;
 }
 

@@ -83,6 +83,7 @@ struct mail_storage_service_user {
 	struct setting_parser_context *set_parser;
 
 	unsigned int anonymous:1;
+	unsigned int admin:1;
 };
 
 struct module *mail_storage_service_modules = NULL;
@@ -277,6 +278,9 @@ user_reply_handle(struct mail_storage_service_ctx *ctx,
 #endif
 		} else if (strncmp(line, "auth_token=", 11) == 0) {
 			user->auth_token = p_strdup(user->pool, line+11);
+		} else if (strncmp(line, "admin=", 6) == 0) {
+			user->admin = line[6] == 'y' || line[6] == 'Y' ||
+				line[6] == '1';
 		} else T_BEGIN {
 			ret = set_line(ctx, user, line);
 		} T_END;
@@ -621,6 +625,7 @@ mail_storage_service_init_post(struct mail_storage_service_ctx *ctx,
 	mail_user->uid = priv->uid == (uid_t)-1 ? geteuid() : priv->uid;
 	mail_user->gid = priv->gid == (gid_t)-1 ? getegid() : priv->gid;
 	mail_user->anonymous = user->anonymous;
+	mail_user->admin = user->admin;
 	mail_user->auth_token = p_strdup(mail_user->pool, user->auth_token);
 	
 	mail_set = mail_user_set_get_storage_set(mail_user);
@@ -913,6 +918,16 @@ int mail_storage_service_read_settings(struct mail_storage_service_ctx *ctx,
 	return -1;
 }
 
+void mail_storage_service_set_auth_conn(struct mail_storage_service_ctx *ctx,
+					struct auth_master_connection *conn)
+{
+	i_assert(ctx->conn == NULL);
+	i_assert(mail_user_auth_master_conn == NULL);
+
+	ctx->conn = conn;
+	mail_user_auth_master_conn = conn;
+}
+
 static void
 mail_storage_service_first_init(struct mail_storage_service_ctx *ctx,
 				const struct setting_parser_info *user_info,
@@ -920,17 +935,13 @@ mail_storage_service_first_init(struct mail_storage_service_ctx *ctx,
 {
 	enum auth_master_flags flags = 0;
 
-	i_assert(ctx->conn == NULL);
-
 	ctx->debug = mail_user_set_get_mail_debug(user_info, user_set);
 	if (ctx->debug)
 		flags |= AUTH_MASTER_FLAG_DEBUG;
 	if ((ctx->flags & MAIL_STORAGE_SERVICE_FLAG_NO_IDLE_TIMEOUT) != 0)
 		flags |= AUTH_MASTER_FLAG_NO_IDLE_TIMEOUT;
-	ctx->conn = auth_master_init(user_set->auth_socket_path, flags);
-
-	i_assert(mail_user_auth_master_conn == NULL);
-	mail_user_auth_master_conn = ctx->conn;
+	mail_storage_service_set_auth_conn(ctx,
+		auth_master_init(user_set->auth_socket_path, flags));
 }
 
 static void

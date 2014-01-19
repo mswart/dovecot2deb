@@ -7,6 +7,12 @@
 
 #define http_response_header http_header_field /* FIXME: remove in v2.3 */
 
+enum http_response_payload_type {
+	HTTP_RESPONSE_PAYLOAD_TYPE_ALLOWED,
+	HTTP_RESPONSE_PAYLOAD_TYPE_NOT_PRESENT,
+	HTTP_RESPONSE_PAYLOAD_TYPE_ONLY_UNSUCCESSFUL
+};
+
 struct http_response {
 	unsigned char version_major;
 	unsigned char version_minor;
@@ -16,7 +22,7 @@ struct http_response {
 	const char *reason;
 	const char *location;
 
-	time_t date;
+	time_t date, retry_after;
 	const struct http_header *header;
 	struct istream *payload;
 
@@ -28,14 +34,9 @@ struct http_response {
 	unsigned int connection_close:1;
 };
 
-static inline void
+void
 http_response_init(struct http_response *resp,
-	unsigned int status, const char *reason)
-{
-	memset(resp, 0, sizeof(*resp));
-	resp->status = status;
-	resp->reason = reason;
-}
+	unsigned int status, const char *reason);
 
 static inline const struct http_header_field *
 http_response_header_find(const struct http_response *resp, const char *name)

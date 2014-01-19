@@ -147,7 +147,10 @@ master_input_cache_flush(struct auth_master_connection *conn, const char *args)
 		return FALSE;
 	}
 
-	if (list[1] == NULL) {
+	if (passdb_cache == NULL) {
+		/* cache disabled */
+		count = 0;
+	} else if (list[1] == NULL) {
 		/* flush the whole cache */
 		count = auth_cache_clear(passdb_cache);
 	} else {
@@ -249,7 +252,7 @@ user_callback(enum userdb_result result,
 	string_t *str;
 	const char *value;
 
-	if (auth_request->userdb_lookup_failed)
+	if (auth_request->userdb_lookup_tempfailed)
 		result = USERDB_RESULT_INTERNAL_FAILURE;
 
 	if (result == USERDB_RESULT_OK) {
@@ -261,7 +264,7 @@ user_callback(enum userdb_result result,
 	switch (result) {
 	case USERDB_RESULT_INTERNAL_FAILURE:
 		str_printfa(str, "FAIL\t%u", auth_request->id);
-		if (auth_request->userdb_lookup_failed) {
+		if (auth_request->userdb_lookup_tempfailed) {
 			value = auth_fields_find(auth_request->userdb_reply,
 						 "reason");
 			if (value != NULL)
@@ -337,8 +340,11 @@ static void pass_callback_finish(struct auth_request *auth_request,
 		break;
 	case PASSDB_RESULT_PASSWORD_MISMATCH:
 	case PASSDB_RESULT_INTERNAL_FAILURE:
-	case PASSDB_RESULT_SCHEME_NOT_AVAILABLE:
 		str_printfa(str, "FAIL\t%u", auth_request->id);
+		break;
+	case PASSDB_RESULT_SCHEME_NOT_AVAILABLE:
+		str_printfa(str, "FAIL\t%u\treason=Configured passdbs don't support crentials lookups",
+			    auth_request->id);
 		break;
 	}
 

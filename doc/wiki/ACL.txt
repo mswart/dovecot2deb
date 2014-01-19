@@ -61,10 +61,13 @@ If you're creating a root-level mailbox, it uses the namespace's default ACLs.
 There is no actual inheritance, however: If you modify parent's ACLs, the
 child's ACLs stay the same. There is currently no support for ACL inheritance.
 
-Namespace's default ACLs are read from "dovecot-acl" file in the namespace's
-mail root directory (e.g.'/var/public/Maildir'). Note that currently these
-default ACLs are used only when creating new mailboxes, they aren't used for
-mailboxes without ACLs.
+ * Maildir: Namespace's default ACLs are read from "dovecot-acl" file in the
+   namespace's mail root directory (e.g.'/var/public/Maildir'). Note that
+   currently these default ACLs are used only when creating new mailboxes, they
+   aren't used for mailboxes without ACLs.
+ * v2.2.2+: If 'plugin { acl_defaults_from_inbox=yes } ', the default ACLs for
+   private and shared namespaces (but not public namespaces) are taken from the
+   INBOX.
 
 Global ACLs
 -----------
@@ -213,4 +216,4 @@ List cache
 you manually add/edit 'dovecot-acl' files, you may need to delete the
 'dovecot-acl-list' to get the mailboxes visible.
 
-(This file was created from the wiki on 2013-09-25 04:42)
+(This file was created from the wiki on 2013-12-19 04:42)

@@ -331,7 +331,9 @@ bool auth_request_import_master(struct auth_request *request,
 	if (strcmp(key, "session_pid") == 0) {
 		if (str_to_pid(value, &pid) == 0)
 			request->session_pid = pid;
-	} else
+	} else if (strcmp(key, "request_auth_token") == 0)
+		request->request_auth_token = TRUE;
+	else
 		return FALSE;
 	return TRUE;
 }
@@ -409,8 +411,7 @@ static void auth_request_save_cache(struct auth_request *request,
 		i_unreached();
 	}
 
-	if (passdb_cache == NULL || passdb->cache_key == NULL ||
-	    request->master_user != NULL)
+	if (passdb_cache == NULL || passdb->cache_key == NULL)
 		return;
 
 	if (result < 0) {
@@ -506,11 +507,26 @@ auth_request_want_skip_passdb(struct auth_request *request,
 }
 
 static bool
+auth_request_want_skip_userdb(struct auth_request *request,
+			      struct auth_userdb *userdb)
+{
+	switch (userdb->skip) {
+	case AUTH_USERDB_SKIP_NEVER:
+		return FALSE;
+	case AUTH_USERDB_SKIP_FOUND:
+		return request->userdb_success;
+	case AUTH_USERDB_SKIP_NOTFOUND:
+		return !request->userdb_success;
+	}
+	i_unreached();
+}
+
+static bool
 auth_request_handle_passdb_callback(enum passdb_result *result,
 				    struct auth_request *request)
 {
 	struct auth_passdb *next_passdb;
-	enum auth_passdb_rule result_rule;
+	enum auth_db_rule result_rule;
 	bool passdb_continue = FALSE;
 
 	if (request->passdb_password != NULL) {
@@ -556,22 +572,22 @@ auth_request_handle_passdb_callback(enum passdb_result *result,
 	}
 
 	switch (result_rule) {
-	case AUTH_PASSDB_RULE_RETURN:
+	case AUTH_DB_RULE_RETURN:
 		break;
-	case AUTH_PASSDB_RULE_RETURN_OK:
+	case AUTH_DB_RULE_RETURN_OK:
 		request->passdb_success = TRUE;
 		break;
-	case AUTH_PASSDB_RULE_RETURN_FAIL:
+	case AUTH_DB_RULE_RETURN_FAIL:
 		request->passdb_success = FALSE;
 		break;
-	case AUTH_PASSDB_RULE_CONTINUE:
+	case AUTH_DB_RULE_CONTINUE:
 		passdb_continue = TRUE;
 		break;
-	case AUTH_PASSDB_RULE_CONTINUE_OK:
+	case AUTH_DB_RULE_CONTINUE_OK:
 		passdb_continue = TRUE;
 		request->passdb_success = TRUE;
 		break;
-	case AUTH_PASSDB_RULE_CONTINUE_FAIL:
+	case AUTH_DB_RULE_CONTINUE_FAIL:
 		passdb_continue = TRUE;
 		request->passdb_success = FALSE;
 		break;
@@ -615,10 +631,12 @@ auth_request_handle_passdb_callback(enum passdb_result *result,
 			auth_fields_rollback(request->extra_fields);
 			if (request->userdb_reply == NULL)
 				;
-			else if (!request->snapshot_has_userdb_reply)
-				request->userdb_reply = NULL;
-			else
+			else if (request->snapshot_has_userdb_reply)
 				auth_fields_rollback(request->userdb_reply);
+			else {
+				request->userdb_reply = NULL;
+				request->userdb_prefetch_set = FALSE;
+			}
 		}
 
 		if (*result == PASSDB_RESULT_USER_UNKNOWN) {
@@ -923,8 +941,7 @@ static void auth_request_userdb_save_cache(struct auth_request *request,
 	string_t *str;
 	const char *cache_value;
 
-	if (passdb_cache == NULL || userdb->cache_key == NULL ||
-	    request->master_user != NULL)
+	if (passdb_cache == NULL || userdb->cache_key == NULL)
 		return;
 
 	if (result == USERDB_RESULT_USER_UNKNOWN)
@@ -956,9 +973,6 @@ static bool auth_request_lookup_user_cache(struct auth_request *request,
 	struct auth_cache_node *node;
 	bool expired, neg_expired;
 
-	if (request->master_user != NULL)
-		return FALSE;
-
 	value = auth_cache_lookup(passdb_cache, request, key, &node,
 				  &expired, &neg_expired);
 	if (value == NULL || (expired && !use_expired)) {
@@ -985,26 +999,79 @@ void auth_request_userdb_callback(enum userdb_result result,
 				  struct auth_request *request)
 {
 	struct userdb_module *userdb = request->userdb->userdb;
+	struct auth_userdb *next_userdb;
+	enum auth_db_rule result_rule;
+	bool userdb_continue = FALSE;
 
-	if (result != USERDB_RESULT_OK && request->userdb->next != NULL) {
+	switch (result) {
+	case USERDB_RESULT_OK:
+		result_rule = request->userdb->result_success;
+		break;
+	case USERDB_RESULT_INTERNAL_FAILURE:
+		result_rule = request->userdb->result_internalfail;
+		break;
+	case USERDB_RESULT_USER_UNKNOWN:
+	default:
+		result_rule = request->userdb->result_failure;
+		break;
+	}
+
+	switch (result_rule) {
+	case AUTH_DB_RULE_RETURN:
+		break;
+	case AUTH_DB_RULE_RETURN_OK:
+		request->userdb_success = TRUE;
+		break;
+	case AUTH_DB_RULE_RETURN_FAIL:
+		request->userdb_success = FALSE;
+		break;
+	case AUTH_DB_RULE_CONTINUE:
+		userdb_continue = TRUE;
+		break;
+	case AUTH_DB_RULE_CONTINUE_OK:
+		userdb_continue = TRUE;
+		request->userdb_success = TRUE;
+		break;
+	case AUTH_DB_RULE_CONTINUE_FAIL:
+		userdb_continue = TRUE;
+		request->userdb_success = FALSE;
+		break;
+	}
+
+	next_userdb = request->userdb->next;
+	while (next_userdb != NULL &&
+	       auth_request_want_skip_userdb(request, next_userdb))
+		next_userdb = next_userdb->next;
+
+	if (userdb_continue && next_userdb != NULL) {
 		/* try next userdb. */
 		if (result == USERDB_RESULT_INTERNAL_FAILURE)
 			request->userdbs_seen_internal_failure = TRUE;
 
-		request->userdb = request->userdb->next;
+		if (result == USERDB_RESULT_OK) {
+			/* this userdb lookup succeeded, preserve its extra
+			   fields */
+			auth_fields_snapshot(request->userdb_reply);
+		} else {
+			/* this userdb lookup failed, remove any extra fields
+			   it set */
+			auth_fields_rollback(request->userdb_reply);
+		}
+
+		request->userdb = next_userdb;
 		auth_request_lookup_user(request,
 					 request->private_callback.userdb);
 		return;
 	}
 
-	if (result == USERDB_RESULT_OK)
+	if (request->userdb_success)
 		userdb_template_export(userdb->override_fields_tmpl, request);
-	else if (request->userdbs_seen_internal_failure) {
+	else if (request->userdbs_seen_internal_failure ||
+		 result == USERDB_RESULT_INTERNAL_FAILURE) {
 		/* one of the userdb lookups failed. the user might have been
 		   in there, so this is an internal failure */
 		result = USERDB_RESULT_INTERNAL_FAILURE;
-	} else if (result == USERDB_RESULT_USER_UNKNOWN &&
-		   request->client_pid != 0) {
+	} else if (request->client_pid != 0) {
 		/* this was an actual login attempt, the user should
 		   have been found. */
 		if (auth_request_get_auth(request)->userdbs->next == NULL) {
@@ -1017,7 +1084,7 @@ void auth_request_userdb_callback(enum userdb_result result,
 		}
 	}
 
-	if (request->userdb_lookup_failed) {
+	if (request->userdb_lookup_tempfailed) {
 		/* no caching */
 	} else if (result != USERDB_RESULT_INTERNAL_FAILURE)
 		auth_request_userdb_save_cache(request, result);
@@ -1047,6 +1114,8 @@ void auth_request_lookup_user(struct auth_request *request,
 
 	request->private_callback.userdb = callback;
 	request->userdb_lookup = TRUE;
+	if (request->userdb_reply == NULL)
+		auth_request_init_userdb_reply(request);
 
 	/* (for now) auth_cache is shared between passdb and userdb */
 	cache_key = passdb_cache == NULL ? NULL : userdb->cache_key;
@@ -1359,6 +1428,7 @@ void auth_request_set_field(struct auth_request *request,
 		auth_request_validate_networks(request, value);
 	} else if (strncmp(name, "userdb_", 7) == 0) {
 		/* for prefetch userdb */
+		request->userdb_prefetch_set = TRUE;
 		if (request->userdb_reply == NULL)
 			auth_request_init_userdb_reply(request);
 		auth_request_set_userdb_field(request, name + 7, value);
@@ -1411,8 +1481,7 @@ void auth_request_set_null_field(struct auth_request *request, const char *name)
 	if (strncmp(name, "userdb_", 7) == 0) {
 		/* make sure userdb prefetch is used even if all the fields
 		   were returned as NULL. */
-		if (request->userdb_reply == NULL)
-			auth_request_init_userdb_reply(request);
+		request->userdb_prefetch_set = TRUE;
 	}
 }
 
@@ -1499,19 +1568,19 @@ void auth_request_set_userdb_field(struct auth_request *request,
 	if (strcmp(name, "uid") == 0) {
 		uid = userdb_parse_uid(request, value);
 		if (uid == (uid_t)-1) {
-			request->userdb_lookup_failed = TRUE;
+			request->userdb_lookup_tempfailed = TRUE;
 			return;
 		}
 		value = dec2str(uid);
 	} else if (strcmp(name, "gid") == 0) {
 		gid = userdb_parse_gid(request, value);
 		if (gid == (gid_t)-1) {
-			request->userdb_lookup_failed = TRUE;
+			request->userdb_lookup_tempfailed = TRUE;
 			return;
 		}
 		value = dec2str(gid);
 	} else if (strcmp(name, "tempfail") == 0) {
-		request->userdb_lookup_failed = TRUE;
+		request->userdb_lookup_tempfailed = TRUE;
 		return;
 	} else if (auth_request_try_update_username(request, name, value)) {
 		return;
@@ -1552,7 +1621,7 @@ void auth_request_set_userdb_field_values(struct auth_request *request,
 		for (; *values != NULL; values++) {
 			gid = userdb_parse_gid(request, *values);
 			if (gid == (gid_t)-1) {
-				request->userdb_lookup_failed = TRUE;
+				request->userdb_lookup_tempfailed = TRUE;
 				return;
 			}
 
@@ -1785,18 +1854,30 @@ static void log_password_failure(struct auth_request *request,
 static void
 auth_request_append_password(struct auth_request *request, string_t *str)
 {
-	const char *log_type = request->set->verbose_passwords;
+	const char *p, *log_type = request->set->verbose_passwords;
+	unsigned int max_len = 1024;
+
+	if (request->mech_password == NULL)
+		return;
+
+	p = strchr(log_type, ':');
+	if (p != NULL) {
+		if (str_to_uint(p+1, &max_len) < 0)
+			i_unreached();
+		log_type = t_strdup_until(log_type, p);
+	}
 
 	if (strcmp(log_type, "plain") == 0) {
 		str_printfa(str, "(given password: %s)",
-			    request->mech_password);
+			    t_strndup(request->mech_password, max_len));
 	} else if (strcmp(log_type, "sha1") == 0) {
 		unsigned char sha1[SHA1_RESULTLEN];
 
 		sha1_get_digest(request->mech_password,
 				strlen(request->mech_password), sha1);
 		str_printfa(str, "(SHA1 of given password: %s)",
-			    binary_to_hex(sha1, sizeof(sha1)));
+			    t_strndup(binary_to_hex(sha1, sizeof(sha1)),
+				      max_len));
 	} else {
 		i_unreached();
 	}
@@ -1942,6 +2023,8 @@ auth_request_var_expand_static_tab[AUTH_REQUEST_VAR_TAB_COUNT+1] = {
 	{ '\0', NULL, "real_rport" },
 	{ '\0', NULL, "domain_first" },
 	{ '\0', NULL, "domain_last" },
+	{ '\0', NULL, "master_user" },
+	{ '\0', NULL, "session_pid" },
 	/* be sure to update AUTH_REQUEST_VAR_TAB_COUNT */
 	{ '\0', NULL, NULL }
 };
@@ -2027,6 +2110,10 @@ auth_request_get_var_expand_table_full(const struct auth_request *auth_request,
 	tab[24].value = strrchr(auth_request->user, '@');
 	if (tab[24].value != NULL)
 		tab[24].value = escape_func(tab[24].value+1, auth_request);
+	tab[25].value = auth_request->master_user == NULL ? NULL :
+		escape_func(auth_request->master_user, auth_request);
+	tab[26].value = auth_request->session_pid == (pid_t)-1 ? NULL :
+		dec2str(auth_request->session_pid);
 	return ret_tab;
 }
 

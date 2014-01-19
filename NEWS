@@ -1,3 +1,94 @@
+v2.2.10 2013-11-25  Timo Sirainen <tss@iki.fi>
+
+	+ auth: passdb/userdb dict rewrite to support much more complex
+	  setups. See doc/example-config/dovecot-dict-auth.conf.ext.
+	  The old settings will continue to work.
+	+ auth: Added userdb result_success/failure/tempfail and skip
+	  settings, similar to passdb's. See
+	  http://wiki2.dovecot.org/UserDatabase
+	+ imap: Implemented SETQUOTA command for admin user when quota_set is
+	  configured. See http://master.wiki2.dovecot.org/Quota/Configuration
+	+ quota: Support "*" and "?" wildcards in mailbox names in quota_rules
+	+ mysql: Added ssl_verify_server_cert=no|yes parameter. This currently
+	  defaults to "no" to make sure nothing breaks, but likely will become
+	  "yes" in Dovecot v2.3.
+	+ ldap: Added blocking=yes setting to use auth worker processes for
+	  ldap lookups. This is a workaround for now to be able to use multiple
+	  simultaneous LDAP connections.
+	+ pop3c+dsync performance improvements
+	- quota-status: quota_grace was ignored
+	- ldap: Fixed memory leak with auth_bind=yes and without
+	  auth_bind_userdn.
+	- imap: Don't send HIGHESTMODSEQ anymore on SELECT/EXAMINE when
+	  CONDSTORE/QRESYNC has never before been enabled for the mailbox.
+	- imap: Fixes to handling mailboxes without permanent modseqs.
+	  (When [NOMODSEQ] is returned by SELECT, mainly with in-memory
+	  indexes.)
+	- imap: Various fixes to METADATA support.
+	- stats plugin: Processes that only temporarily dropped privileges
+	  (e.g. indexer-worker) may have been logging errors about not being
+	  able to open /proc/self/io.
+
+v2.2.9 2013-11-25  Timo Sirainen <tss@iki.fi>
+
+	+ Full text search indexing can now be done automatically after
+	  saving/copying mails by setting plugin { fts_autoindex=yes }
+	+ replicator: Added replication_dsync_parameters setting to pass
+	  "doveadm sync" parameters (for controlling what to replicate).
+	+ Added mail-filter plugin
+	+ Added liblzma/xz support (zlib_save=xz)
+	- v2.2.8's improved cache file handling exposed several old bugs
+	  related to fetching mail headers.
+	- v2.2.7's iostream handling changes were causing some connections
+	  to be disconnected before flushing their output (e.g. POP3 logout
+	  message wasn't being sent)
+
+v2.2.8 2013-11-19  Timo Sirainen <tss@iki.fi>
+
+	+ Mail cache lookups work for the mail being saved. This improves
+	  performance by avoiding the need to parse the mail multiple times
+	  when using some plugins (e.g. mail_log).
+	+ Mail cache works for recently cached data also with in-memory
+	  indexes.
+	+ imapc: Many performance improvements, especially when working with
+	  dsync. Also added imapc_feature=fetch-headers which allows using
+	  FETCH BODY.PEEK[HEADER.FIELDS (..)] to avoid reading the entire
+	  header.
+	+ mail_location = ..:FULLDIRNAME=dbox-Mails is the same as
+	  :DIRNAME=dbox-Mails, but it will also be used for
+	  :INDEX and :CONTROL directories. (It should have worked this way
+	  from the beginning, but can't be changed anymore without breaking
+	  existing installations).
+	- Fixed infinite loop in message parsing if message ends with
+	  "--boundary" and CR (without LF). Messages saved via SMTP/LMTP can't
+	  trigger this, because messages must end with an "LF.". A user could
+	  trigger this for him/herself though.
+	- lmtp: Client was sometimes disconnected before all the output was
+	  sent to it.
+	- imap_zlib plugin caused crashes during client disconnection in
+	  v2.2.7
+	- replicator: Database wasn't being exported to disk every 15 minutes
+	  as it should have. Instead it was being imported, causing "doveadm
+	  replicator remove" commands to not work very well.
+
+v2.2.7 2013-11-03  Timo Sirainen <tss@iki.fi>
+
+	* Some usage of passdb checkpassword could have been exploitable by
+	  local users. You may need to modify your setup to keep it working.
+	  See http://wiki2.dovecot.org/AuthDatabase/CheckPassword#Security
+
+	+ auth: Added ability to truncate values logged by
+	  auth_verbose_passwords (see 10-logging.conf comment)
+	+ mdbox: Added "mdbox_deleted" storage, which can be used to access
+	  messages with refcount=0. For example: doveadm import
+	  mdbox_deleted:~/mdbox "" mailbox inbox subject oops
+	+ ssl-params: Added ssl_dh_parameters_length setting.
+	- master process was doing a hostname.domain lookup for each created
+	  process, which may have caused a lot of unnecessary DNS lookups.
+	- dsync: Syncing over 100 messages at once caused problems in some
+	  situations, causing messages to get new UIDs.
+	- fts-solr: Different Solr hosts for different users didn't work.
+
 v2.2.6 2013-09-25  Timo Sirainen <tss@iki.fi>
 
 	* acl: If public/shared namespace has a shared subscriptions file for

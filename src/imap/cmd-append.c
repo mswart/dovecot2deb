@@ -26,7 +26,6 @@
 struct cmd_append_context {
 	struct client *client;
         struct client_command_context *cmd;
-	struct mail_storage *storage;
 	struct mailbox *box;
         struct mailbox_transaction_context *t;
 	time_t started;
@@ -52,16 +51,17 @@ static void cmd_append_finish(struct cmd_append_context *ctx);
 static bool cmd_append_continue_message(struct client_command_context *cmd);
 static bool cmd_append_parse_new_msg(struct client_command_context *cmd);
 
-static const char *get_disconnect_reason(struct cmd_append_context *ctx)
+static const char *
+get_disconnect_reason(struct cmd_append_context *ctx, uoff_t lit_offset)
 {
 	string_t *str = t_str_new(128);
 	unsigned int secs = ioloop_time - ctx->started;
 
 	str_printfa(str, "Disconnected in APPEND (%u msgs, %u secs",
 		    ctx->count, secs);
-	if (ctx->litinput != NULL) {
+	if (ctx->literal_size > 0) {
 		str_printfa(str, ", %"PRIuUOFF_T"/%"PRIuUOFF_T" bytes",
-			    ctx->litinput->v_offset, ctx->literal_size);
+			    lit_offset, ctx->literal_size);
 	}
 	str_append_c(str, ')');
 	return str_c(str);
@@ -73,6 +73,7 @@ static void client_input_append(struct client_command_context *cmd)
 	struct client *client = cmd->client;
 	const char *reason;
 	bool finished;
+	uoff_t lit_offset;
 
 	i_assert(!client->destroyed);
 
@@ -82,7 +83,9 @@ static void client_input_append(struct client_command_context *cmd)
 	switch (i_stream_read(client->input)) {
 	case -1:
 		/* disconnected */
-		reason = get_disconnect_reason(ctx);
+		lit_offset = ctx->litinput == NULL ? 0 :
+			ctx->litinput->v_offset;
+		reason = get_disconnect_reason(ctx, lit_offset);
 		cmd_append_finish(cmd->context);
 		/* Reset command so that client_destroy() doesn't try to call
 		   cmd_append_continue_message() anymore. */
@@ -177,7 +180,7 @@ cmd_append_catenate_mpurl(struct client_command_context *cmd,
 	/* catenate URL */
 	ret = imap_msgpart_url_read_part(mpurl, &mpresult, &error);
 	if (ret < 0) {
-		client_send_storage_error(cmd, ctx->storage);
+		client_send_box_error(cmd, ctx->box);
 		return -1;
 	}
 	if (ret == 0) {
@@ -215,11 +218,11 @@ cmd_append_catenate_mpurl(struct client_command_context *cmd,
 			"read(%s) failed: %s (for CATENATE URL %s)",
 			i_stream_get_name(mpresult.input),
 			i_stream_get_error(mpresult.input), caturl);
-		client_send_storage_error(cmd, ctx->storage);
+		client_send_box_error(cmd, ctx->box);
 		ret = -1;
 	} else if (!mpresult.input->eof) {
 		/* save failed */
-		client_send_storage_error(cmd, ctx->storage);
+		client_send_box_error(cmd, ctx->box);
 		ret = -1;
 	} else {
 		/* all the input must be consumed, so istream-chain's read()
@@ -244,7 +247,7 @@ cmd_append_catenate_url(struct client_command_context *cmd, const char *caturl)
 	ret = imap_msgpart_url_parse(cmd->client->user, cmd->client->mailbox,
 				     caturl, &mpurl, &error);
 	if (ret < 0) {
-		client_send_storage_error(cmd, ctx->storage);
+		client_send_box_error(cmd, ctx->box);
 		return -1;
 	}
 	if (ret == 0) {
@@ -352,7 +355,7 @@ static void cmd_append_finish_catenate(struct client_command_context *cmd)
 			mailbox_save_cancel(&ctx->save_ctx);
 	} else {
 		if (mailbox_save_finish(&ctx->save_ctx) < 0) {
-			client_send_storage_error(cmd, ctx->storage);
+			client_send_box_error(cmd, ctx->box);
 			ctx->failed = TRUE;
 		}
 	}
@@ -528,7 +531,7 @@ cmd_append_handle_args(struct client_command_context *cmd,
 		else if (mailbox_keywords_create(ctx->box, keywords_list,
 						 &keywords) < 0) {
 			/* invalid keywords - delay failure */
-			client_send_storage_error(cmd, ctx->storage);
+			client_send_box_error(cmd, ctx->box);
 			ctx->failed = TRUE;
 		}
 	}
@@ -590,7 +593,7 @@ cmd_append_handle_args(struct client_command_context *cmd,
 					       internal_date, timezone_offset);
 		if (mailbox_save_begin(&ctx->save_ctx, ctx->input) < 0) {
 			/* save initialization failed */
-			client_send_storage_error(cmd, ctx->storage);
+			client_send_box_error(cmd, ctx->box);
 			ctx->failed = TRUE;
 		}
 	}
@@ -645,7 +648,7 @@ static bool cmd_append_finish_parsing(struct client_command_context *cmd)
 
 	ret = mailbox_transaction_commit_get_changes(&ctx->t, &changes);
 	if (ret < 0) {
-		client_send_storage_error(cmd, ctx->storage);
+		client_send_box_error(cmd, ctx->box);
 		cmd_append_finish(ctx);
 		return TRUE;
 	}
@@ -825,7 +828,7 @@ static bool cmd_append_continue_message(struct client_command_context *cmd)
 	}
 
 	if (ctx->litinput->eof || client->input->closed) {
-		bool all_written = ctx->litinput->v_offset == ctx->literal_size;
+		uoff_t lit_offset = ctx->litinput->v_offset;
 
 		/* finished - do one more read, to make sure istream-chain
 		   unreferences its stream, which is needed for litinput's
@@ -841,18 +844,19 @@ static bool cmd_append_continue_message(struct client_command_context *cmd)
 				mailbox_save_cancel(&ctx->save_ctx);
 		} else if (ctx->save_ctx == NULL) {
 			/* failed above */
-			client_send_storage_error(cmd, ctx->storage);
+			client_send_box_error(cmd, ctx->box);
 			ctx->failed = TRUE;
-		} else if (!all_written) {
+		} else if (lit_offset != ctx->literal_size) {
 			/* client disconnected before it finished sending the
 			   whole message. */
 			ctx->failed = TRUE;
 			mailbox_save_cancel(&ctx->save_ctx);
-			client_disconnect(client, "EOF while appending");
+			client_disconnect(client,
+				get_disconnect_reason(ctx, lit_offset));
 		} else if (ctx->catenate) {
 			/* CATENATE isn't finished yet */
 		} else if (mailbox_save_finish(&ctx->save_ctx) < 0) {
-			client_send_storage_error(cmd, ctx->storage);
+			client_send_box_error(cmd, ctx->box);
 			ctx->failed = TRUE;
 		}
 
@@ -904,8 +908,6 @@ bool cmd_append(struct client_command_context *cmd)
 	if (client_open_save_dest_box(cmd, mailbox, &ctx->box) < 0)
 		ctx->failed = TRUE;
 	else {
-		ctx->storage = mailbox_get_storage(ctx->box);
-
 		ctx->t = mailbox_transaction_begin(ctx->box,
 					MAILBOX_TRANSACTION_FLAG_EXTERNAL |
 					MAILBOX_TRANSACTION_FLAG_ASSIGN_UIDS);
