@@ -1,4 +1,4 @@
-dovecot (1:2.2.11-1) unstable; urgency=low
+dovecot (1:2.2.11-2) precise; urgency=low
 
   * [7e95f0d] Imported Upstream version 2.2.11
 
