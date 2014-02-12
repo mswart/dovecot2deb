@@ -1,3 +1,9 @@
+dovecot (1:2.2.11-1) unstable; urgency=low
+
+  * [7e95f0d] Imported Upstream version 2.2.11
+
+ -- Malte Swart <packages@devtation.de>  Wed, 12 Feb 2014 09:27:35 +0100
+
 dovecot (1:2.2.10-1) unstable; urgency=low
 
   * [7cb1d82] Imported Upstream version 2.2.10
