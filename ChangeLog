@@ -1,8 +1,28 @@
+2014-02-13  Timo Sirainen  <tss@iki.fi>
+
+	* .hgsigs:
+	Added signature for changeset 8e4433702920
+	[bc8822282f60] [tip]
+
+	* .hgtags:
+	Added tag 2.2.12 for changeset 8e4433702920
+	[95a22164e66e]
+
+	* NEWS, configure.ac:
+	Released v2.2.12.
+	[8e4433702920] [2.2.12]
+
+2014-02-13  Teemu Huovila  <teemu.huovila@dovecot.fi>
+
+	* src/pop3/pop3-commands.c:
+	pop3: Access sequence numbers correctly.
+	[d20059f7d3a1]
+
 2014-02-12  Timo Sirainen  <tss@iki.fi>
 
 	* .hgsigs:
 	Added signature for changeset 6b96eb75ded2
-	[179834c53f20] [tip]
+	[179834c53f20]
 
 	* .hgtags:
 	Added tag 2.2.11 for changeset 6b96eb75ded2
