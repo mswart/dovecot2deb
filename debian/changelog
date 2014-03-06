@@ -13,6 +13,12 @@ dovecot (1:2.2.15-1) unstable; urgency=medium
 
  -- Malte Swart <packages@devtation.de>  Sat, 14 Feb 2015 18:00:10 +0100
 
+dovecot (1:2.2.13-4) UNRELEASED; urgency=medium
+
+  * Add Provides with dovecot ABI version, for plugins to depend on. Closes: #456021
+
+ -- Jelmer Vernooij <jelmer@debian.org>  Sun, 20 Jul 2014 19:31:09 +0200
+
 dovecot (1:2.2.13-2) unstable; urgency=low
 
   * [2cce851] Backporting a few bug fixes for pigeonhole (sieve)
