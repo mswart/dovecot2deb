@@ -1,3 +1,9 @@
+dovecot (1:2.2.12-1~trusty1) trusty; urgency=low
+
+  * Port to trusty
+
+ -- Malte Swart <packages@devtation.de>  Fri, 18 Apr 2014 01:17:54 +0200
+
 dovecot (1:2.2.12-1) unstable; urgency=low
 
   * [83406a4] Imported Upstream version 2.2.12
