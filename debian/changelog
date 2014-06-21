@@ -1,3 +1,10 @@
+dovecot (1:2.2.13-1) unstable; urgency=medium
+
+  * [3be1379] Imported Upstream version 2.2.13
+  * [155443a] Updated pigeonhole to 0.4.3
+
+ -- Malte Swart <packages@devtation.de>  Sat, 21 Jun 2014 18:25:16 +0200
+
 dovecot (1:2.2.12-1) unstable; urgency=low
 
   * [83406a4] Imported Upstream version 2.2.12
