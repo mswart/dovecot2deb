@@ -1,3 +1,9 @@
+dovecot (1:2.2.13-2precise1) precise; urgency=low
+
+  * [2cce851] Backporting a few bug fixes for pigeonhole (sieve)
+
+ -- Malte Swart <packages@devtation.de>  Sun, 22 Jun 2014 11:37:34 +0200
+
 dovecot (1:2.2.13-1) precise; urgency=medium
 
   * [3be1379] Imported Upstream version 2.2.13
