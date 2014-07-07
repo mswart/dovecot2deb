@@ -19,6 +19,13 @@ dovecot (1:2.2.13-4) UNRELEASED; urgency=medium
 
  -- Jelmer Vernooij <jelmer@debian.org>  Sun, 20 Jul 2014 19:31:09 +0200
 
+dovecot (1:2.2.13-3) UNRELEASED; urgency=medium
+
+  * Build-depend on clucene 2.3 or later, which upstream lists as the
+    minimum version. Closes: #754141
+
+ -- Jelmer Vernooij <jelmer@debian.org>  Tue, 08 Jul 2014 01:48:08 +0200
+
 dovecot (1:2.2.13-2) unstable; urgency=low
 
   * [2cce851] Backporting a few bug fixes for pigeonhole (sieve)
