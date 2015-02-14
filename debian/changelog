@@ -1,3 +1,11 @@
+dovecot (1:2.2.15-1) unstable; urgency=medium
+
+  * [be3178f] Imported Upstream version 2.2.15
+  * [b2c60e5] Remove dsync-manpage.patch as it is mostly changed upstream
+  * [942ae73] Update pigeonhole release to 0.4.6
+
+ -- Malte Swart <packages@devtation.de>  Sat, 14 Feb 2015 18:00:10 +0100
+
 dovecot (1:2.2.13-2) unstable; urgency=low
 
   * [2cce851] Backporting a few bug fixes for pigeonhole (sieve)
