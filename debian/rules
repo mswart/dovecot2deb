@@ -25,7 +25,7 @@ endif
 config-stamp: configure
 	dh_testdir
 	# Dovecot
-	$(shell $(dpkg_buildflags) --export=configure) sh configure \
+	KRB5CONFIG=krb5-config.mit $(shell $(dpkg_buildflags) --export=configure) sh configure \
 	            --with-ldap=plugin \
 	            --with-ssl=openssl \
 	            --with-sql=plugin \
