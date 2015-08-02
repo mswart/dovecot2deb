@@ -1,4 +1,4 @@
-/* Copyright (c) 2008-2014 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2008-2015 Dovecot authors, see the included COPYING file */
 
 #include "lib.h"
 #include "array.h"
@@ -106,6 +106,8 @@ static int backend_mail_get(struct virtual_mail *vmail,
 	}
 
 	bbox = virtual_backend_box_lookup(mbox, vmail->cur_vrec.mailbox_id);
+	i_assert(bbox != NULL);
+
 	vmail->cur_backend_mail = backend_mail_find(vmail, bbox->box);
 	if (vmail->cur_backend_mail == NULL) {
 		if (!bbox->box->opened &&

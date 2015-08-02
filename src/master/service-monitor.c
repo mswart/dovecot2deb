@@ -1,4 +1,4 @@
-/* Copyright (c) 2005-2014 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2005-2015 Dovecot authors, see the included COPYING file */
 
 #include "common.h"
 #include "array.h"
@@ -652,7 +652,7 @@ void services_monitor_reap_children(void)
 		if (throttle)
 			service_monitor_throttle(service);
 		service_stopped = service->status_fd[0] == -1;
-		if (!service_stopped) {
+		if (!service_stopped && !service->list->destroying) {
 			service_monitor_start_extra_avail(service);
 			/* if there are no longer listening processes,
 			   start listening for more */

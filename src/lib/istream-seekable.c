@@ -1,4 +1,4 @@
-/* Copyright (c) 2005-2014 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2005-2015 Dovecot authors, see the included COPYING file */
 
 #include "lib.h"
 #include "buffer.h"
@@ -105,6 +105,8 @@ static int copy_to_temp_file(struct seekable_istream *sstream)
 	sstream->fd = fd;
 	sstream->fd_input =
 		i_stream_create_fd_autoclose(&fd, sstream->istream.max_buffer_size);
+	i_stream_set_name(sstream->fd_input, t_strdup_printf(
+		"(seekable temp-istream for: %s)", i_stream_get_name(&stream->istream)));
 
 	/* read back the data we just had in our buffer */
 	i_stream_seek(sstream->fd_input, stream->istream.v_offset);
@@ -143,6 +145,7 @@ static ssize_t read_more(struct seekable_istream *sstream)
 				"read(%s) failed: %s",
 				i_stream_get_name(sstream->cur_input),
 				i_stream_get_error(sstream->cur_input));
+			sstream->istream.istream.eof = TRUE;
 			sstream->istream.istream.stream_errno =
 				sstream->cur_input->stream_errno;
 			return -1;
@@ -374,6 +377,8 @@ i_streams_merge(struct istream *input[], size_t max_buffer_size,
 	size_t size;
 	bool blocking = TRUE;
 
+	i_assert(max_buffer_size > 0);
+
 	/* if any of the streams isn't blocking, set ourself also nonblocking */
 	for (count = 0; input[count] != NULL; count++) {
 		if (!input[count]->blocking)
@@ -431,6 +436,8 @@ i_stream_create_seekable(struct istream *input[],
 			 int (*fd_callback)(const char **path_r, void *context),
 			 void *context)
 {
+	i_assert(max_buffer_size > 0);
+
 	/* If all input streams are seekable, use concat istream instead */
 	if (inputs_are_seekable(input))
 		return i_stream_create_concat(input);
@@ -471,6 +478,8 @@ i_stream_create_seekable_path(struct istream *input[],
 {
 	struct seekable_istream *sstream;
 	struct istream *stream;
+
+	i_assert(max_buffer_size > 0);
 
 	if (inputs_are_seekable(input))
 		return i_stream_create_concat(input);

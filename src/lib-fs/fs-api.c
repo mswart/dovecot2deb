@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2014 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2010-2015 Dovecot authors, see the included COPYING file */
 
 #include "lib.h"
 #include "array.h"
@@ -11,8 +11,12 @@
 #include "ostream.h"
 #include "fs-api-private.h"
 
+struct fs_api_module_register fs_api_module_register = { 0 };
+
 static struct module *fs_modules = NULL;
 static ARRAY(const struct fs *) fs_classes;
+
+static void fs_classes_init(void);
 
 static int
 fs_alloc(const struct fs *fs_class, const char *args,
@@ -22,7 +26,9 @@ fs_alloc(const struct fs *fs_class, const char *args,
 	int ret;
 
 	fs = fs_class->v.alloc();
+	fs->refcount = 1;
 	fs->last_error = str_new(default_pool, 64);
+	i_array_init(&fs->module_contexts, 5);
 
 	T_BEGIN {
 		ret = fs_class->v.init(fs, args, set);
@@ -33,7 +39,7 @@ fs_alloc(const struct fs *fs_class, const char *args,
 		   data stack. */
 		*error_r = t_strdup_printf("%s: %s", fs_class->name,
 					   fs_last_error(fs));
-		fs_deinit(&fs);
+		fs_unref(&fs);
 		return -1;
 	}
 	fs->username = i_strdup(set->username);
@@ -42,8 +48,10 @@ fs_alloc(const struct fs *fs_class, const char *args,
 	return 0;
 }
 
-static void fs_class_register(const struct fs *fs_class)
+void fs_class_register(const struct fs *fs_class)
 {
+	if (!array_is_created(&fs_classes))
+		fs_classes_init();
 	array_append(&fs_classes, &fs_class, 1);
 }
 
@@ -81,9 +89,15 @@ static void fs_class_deinit_modules(void)
 	module_dir_unload(&fs_modules);
 }
 
+static const char *fs_driver_module_name(const char *driver)
+{
+	return t_str_replace(driver, '-', '_');
+}
+
 static void fs_class_try_load_plugin(const char *driver)
 {
-	const char *module_name = t_strdup_printf("fs_%s", driver);
+	const char *module_name =
+		t_strdup_printf("fs_%s", fs_driver_module_name(driver));
 	struct module *module;
 	struct module_dir_load_settings mod_set;
 	const struct fs *fs_class;
@@ -98,7 +112,8 @@ static void fs_class_try_load_plugin(const char *driver)
 
 	module = module_dir_find(fs_modules, module_name);
 	fs_class = module == NULL ? NULL :
-		module_get_symbol(module, t_strdup_printf("fs_class_%s", driver));
+		module_get_symbol(module, t_strdup_printf(
+			"fs_class_%s", fs_driver_module_name(driver)));
 	if (fs_class != NULL)
 		fs_class_register(fs_class);
 
@@ -133,12 +148,30 @@ int fs_init(const char *driver, const char *args,
 	return 0;
 }
 
-void fs_deinit(struct fs **_fs)
+void fs_deinit(struct fs **fs)
+{
+	fs_unref(fs);
+}
+
+void fs_ref(struct fs *fs)
+{
+	i_assert(fs->refcount > 0);
+
+	fs->refcount++;
+}
+
+void fs_unref(struct fs **_fs)
 {
 	struct fs *fs = *_fs;
 	string_t *last_error = fs->last_error;
+	struct array module_contexts_arr = fs->module_contexts.arr;
+
+	i_assert(fs->refcount > 0);
 
 	*_fs = NULL;
+
+	if (--fs->refcount > 0)
+		return;
 
 	if (fs->files_open_count > 0) {
 		i_panic("fs-%s: %u files still open (first = %s)",
@@ -152,7 +185,18 @@ void fs_deinit(struct fs **_fs)
 	T_BEGIN {
 		fs->v.deinit(fs);
 	} T_END;
+	array_free_i(&module_contexts_arr);
 	str_free(&last_error);
+}
+
+struct fs *fs_get_parent(struct fs *fs)
+{
+	return fs->parent;
+}
+
+const char *fs_get_driver(struct fs *fs)
+{
+	return fs->name;
 }
 
 const char *fs_get_root_driver(struct fs *fs)
@@ -259,10 +303,33 @@ int fs_get_metadata(struct fs_file *file,
 		fs_set_error(file->fs, "Metadata not supported by backend");
 		return -1;
 	}
+	if (!file->read_or_prefetch_counted &&
+	    !file->lookup_metadata_counted) {
+		file->lookup_metadata_counted = TRUE;
+		file->fs->stats.lookup_metadata_count++;
+	}
 	T_BEGIN {
 		ret = file->fs->v.get_metadata(file, metadata_r);
 	} T_END;
 	return ret;
+}
+
+int fs_lookup_metadata(struct fs_file *file, const char *key,
+		       const char **value_r)
+{
+	const ARRAY_TYPE(fs_metadata) *metadata;
+	const struct fs_metadata *md;
+
+	if (fs_get_metadata(file, &metadata) < 0)
+		return -1;
+	array_foreach(metadata, md) {
+		if (strcmp(md->key, key) == 0) {
+			*value_r = md->value;
+			return 1;
+		}
+	}
+	*value_r = NULL;
+	return 0;
 }
 
 const char *fs_file_path(struct fs_file *file)
@@ -308,6 +375,10 @@ bool fs_prefetch(struct fs_file *file, uoff_t length)
 {
 	bool ret;
 
+	if (!file->read_or_prefetch_counted) {
+		file->read_or_prefetch_counted = TRUE;
+		file->fs->stats.prefetch_count++;
+	}
 	T_BEGIN {
 		ret = file->fs->v.prefetch(file, length);
 	} T_END;
@@ -346,6 +417,11 @@ ssize_t fs_read(struct fs_file *file, void *buf, size_t size)
 {
 	int ret;
 
+	if (!file->read_or_prefetch_counted) {
+		file->read_or_prefetch_counted = TRUE;
+		file->fs->stats.read_count++;
+	}
+
 	if (file->fs->v.read != NULL) {
 		T_BEGIN {
 			ret = file->fs->v.read(file, buf, size);
@@ -365,6 +441,11 @@ struct istream *fs_read_stream(struct fs_file *file, size_t max_buffer_size)
 	size_t size;
 	ssize_t ret;
 	bool want_seekable = FALSE;
+
+	if (!file->read_or_prefetch_counted) {
+		file->read_or_prefetch_counted = TRUE;
+		file->fs->stats.read_count++;
+	}
 
 	if (file->seekable_input != NULL) {
 		i_stream_seek(file->seekable_input, 0);
@@ -448,6 +529,7 @@ int fs_write(struct fs_file *file, const void *data, size_t size)
 {
 	int ret;
 
+	file->fs->stats.write_count++;
 	if (file->fs->v.write != NULL) {
 		T_BEGIN {
 			ret = file->fs->v.write(file, data, size);
@@ -462,6 +544,7 @@ int fs_write(struct fs_file *file, const void *data, size_t size)
 
 struct ostream *fs_write_stream(struct fs_file *file)
 {
+	file->fs->stats.write_count++;
 	T_BEGIN {
 		file->fs->v.write_stream(file);
 	} T_END;
@@ -579,6 +662,7 @@ int fs_exists(struct fs_file *file)
 		else
 			return errno == ENOENT ? 0 : -1;
 	}
+	file->fs->stats.exists_count++;
 	T_BEGIN {
 		ret = file->fs->v.exists(file);
 	} T_END;
@@ -589,6 +673,11 @@ int fs_stat(struct fs_file *file, struct stat *st_r)
 {
 	int ret;
 
+	if (!file->read_or_prefetch_counted &&
+	    !file->lookup_metadata_counted && !file->stat_counted) {
+		file->stat_counted = TRUE;
+		file->fs->stats.stat_count++;
+	}
 	T_BEGIN {
 		ret = file->fs->v.stat(file, st_r);
 	} T_END;
@@ -597,6 +686,10 @@ int fs_stat(struct fs_file *file, struct stat *st_r)
 
 int fs_default_copy(struct fs_file *src, struct fs_file *dest)
 {
+	/* we're going to be counting this as read+write, so remove the
+	   copy_count we just added */
+	dest->fs->stats.copy_count--;
+
 	if (dest->copy_src != NULL) {
 		i_assert(src == NULL || src == dest->copy_src);
 		if (dest->copy_output == NULL) {
@@ -647,6 +740,7 @@ int fs_copy(struct fs_file *src, struct fs_file *dest)
 
 	i_assert(src->fs == dest->fs);
 
+	dest->fs->stats.copy_count++;
 	T_BEGIN {
 		ret = src->fs->v.copy(src, dest);
 	} T_END;
@@ -673,6 +767,7 @@ int fs_rename(struct fs_file *src, struct fs_file *dest)
 
 	i_assert(src->fs == dest->fs);
 
+	dest->fs->stats.rename_count++;
 	T_BEGIN {
 		ret = src->fs->v.rename(src, dest);
 	} T_END;
@@ -683,6 +778,7 @@ int fs_delete(struct fs_file *file)
 {
 	int ret;
 
+	file->fs->stats.delete_count++;
 	T_BEGIN {
 		ret = file->fs->v.delete_file(file);
 	} T_END;
@@ -694,6 +790,10 @@ fs_iter_init(struct fs *fs, const char *path, enum fs_iter_flags flags)
 {
 	struct fs_iter *iter;
 
+	i_assert((flags & FS_ITER_FLAG_OBJECTIDS) == 0 ||
+		 (fs_get_properties(fs) & FS_PROPERTY_OBJECTIDS) != 0);
+
+	fs->stats.iter_count++;
 	T_BEGIN {
 		iter = fs->v.iter_init(fs, path, flags);
 	} T_END;
@@ -735,6 +835,11 @@ void fs_iter_set_async_callback(struct fs_iter *iter,
 bool fs_iter_have_more(struct fs_iter *iter)
 {
 	return iter->async_have_more;
+}
+
+const struct fs_stats *fs_get_stats(struct fs *fs)
+{
+	return &fs->stats;
 }
 
 void fs_set_error(struct fs *fs, const char *fmt, ...)
