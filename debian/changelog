@@ -1,9 +1,9 @@
-dovecot (1:2.2.18-1) unstable; urgency=medium
+dovecot (1:2.2.18-1trusty1) trusty; urgency=medium
 
   * [af5ab18] Imported Upstream version 2.2.18
   * [167b447] Update pigeonhole release to 0.4.8
 
- -- Malte Swart <packages@devtation.de>  Sun, 02 Aug 2015 10:55:39 +0200
+ -- Malte Swart <packages@devtation.de>  Sun, 02 Aug 2015 11:20:48 +0200
 
 dovecot (1:2.2.15-1trusty1) trusty; urgency=medium
 
