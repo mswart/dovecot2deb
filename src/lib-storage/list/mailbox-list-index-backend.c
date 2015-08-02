@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2014 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2013-2015 Dovecot authors, see the included COPYING file */
 
 #include "lib.h"
 #include "hostpid.h"
@@ -496,7 +496,8 @@ index_list_delete_entry(struct index_mailbox_list *list, const char *name,
 	struct mailbox_list_index_sync_context *sync_ctx;
 	int ret;
 
-	if (strcmp(name, list->create_mailbox_name) == 0) {
+	if (list->create_mailbox_name != NULL &&
+	    strcmp(name, list->create_mailbox_name) == 0) {
 		/* we're rollbacking a failed create. if the name exists in the
 		   list, it was done by somebody else so we don't want to
 		   remove it. */
@@ -716,7 +717,4 @@ void mailbox_list_index_backend_init_mailbox(struct mailbox *box)
 	box->v.create_box = index_list_mailbox_create;
 	box->v.update_box = index_list_mailbox_update;
 	box->v.exists = index_list_mailbox_exists;
-
-	box->v.list_index_has_changed = NULL;
-	box->v.list_index_update_sync = NULL;
 }

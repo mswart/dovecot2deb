@@ -1,4 +1,4 @@
-/* Copyright (c) 2006-2014 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2006-2015 Dovecot authors, see the included COPYING file */
 
 #include "lib.h"
 #include "array.h"
@@ -772,6 +772,8 @@ static int maildir_quota_init(struct quota_root *_root, const char *args,
 	for (tmp = t_strsplit(args, ":"); *tmp != NULL; tmp++) {
 		if (strcmp(*tmp, "noenforcing") == 0)
 			_root->no_enforcing = TRUE;
+		else if (strcmp(*tmp, "hidden") == 0)
+			_root->hidden = TRUE;
 		else if (strcmp(*tmp, "ignoreunlimited") == 0)
 			_root->disable_unlimited_tracking = TRUE;
 		else if (strncmp(*tmp, "ns=", 3) == 0)

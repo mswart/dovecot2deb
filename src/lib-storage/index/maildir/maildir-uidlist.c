@@ -1,4 +1,4 @@
-/* Copyright (c) 2003-2014 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2003-2015 Dovecot authors, see the included COPYING file */
 
 /*
    Version 1 format has been used for most versions of Dovecot up to v1.0.x.
@@ -1976,6 +1976,7 @@ static void maildir_uidlist_swap(struct maildir_uidlist_sync_ctx *ctx)
 	array_free(&uidlist->records);
 	uidlist->records = ctx->records;
 	ctx->records.arr.buffer = NULL;
+	i_assert(array_is_created(&uidlist->records));
 
 	hash_table_destroy(&uidlist->files);
 	uidlist->files = ctx->files;

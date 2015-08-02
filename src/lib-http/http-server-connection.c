@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2014 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2013-2015 Dovecot authors, see the included COPYING file */
 
 #include "lib.h"
 #include "llist.h"
@@ -229,6 +229,8 @@ static void http_server_payload_destroyed(struct http_server_request *req)
 		req->state = HTTP_SERVER_REQUEST_STATE_PROCESSING;
 		if (req->response != NULL && req->response->submitted)
 			http_server_request_submit_response(req);
+	} else if (req->state == HTTP_SERVER_REQUEST_STATE_SUBMITTED_RESPONSE) {
+		http_server_request_ready_to_respond(req);
 	}
 
 	/* input stream may have pending input. make sure input handler
@@ -294,12 +296,15 @@ http_server_connection_handle_request(struct http_server_connection *conn,
 		   actual payload stream. */
 		conn->incoming_payload = req->req.payload =
 			i_stream_create_limit(req->req.payload, (uoff_t)-1);
-		i_stream_add_destroy_callback(req->req.payload,
-					      http_server_payload_destroyed, req);
-		/* the callback may add its own I/O, so we need to remove
-		   our one before calling it */
-		http_server_connection_input_halt(conn);
+	} else {
+		conn->incoming_payload = req->req.payload =
+			i_stream_create_from_data("", 0);
 	}
+	i_stream_add_destroy_callback(req->req.payload,
+				      http_server_payload_destroyed, req);
+	/* the callback may add its own I/O, so we need to remove
+	   our one before calling it */
+	http_server_connection_input_halt(conn);
 
 	http_server_connection_request_callback(conn, req);
 	if (conn->closed) {
@@ -539,11 +544,13 @@ static void http_server_connection_input(struct connection *_conn)
 			switch (error_code) {
 			case HTTP_REQUEST_PARSE_ERROR_BROKEN_REQUEST:
 				conn->input_broken = TRUE;
+				/* fall through */
 			case HTTP_REQUEST_PARSE_ERROR_BAD_REQUEST:
 				http_server_request_fail(req, 400, "Bad Request");
 				break;
 			case HTTP_REQUEST_PARSE_ERROR_METHOD_TOO_LONG:
 				conn->input_broken = TRUE;
+				/* fall through */
 			case HTTP_REQUEST_PARSE_ERROR_NOT_IMPLEMENTED:
 				http_server_request_fail(req, 501, "Not Implemented");
 				break;
@@ -749,7 +756,7 @@ void http_server_connection_trigger_responses(
 bool
 http_server_connection_pending_payload(struct http_server_connection *conn)
 {
-	return http_request_parser_pending_payload(conn->http_parser);
+	return conn->incoming_payload != NULL;
 }
 
 static struct connection_settings http_server_connection_set = {

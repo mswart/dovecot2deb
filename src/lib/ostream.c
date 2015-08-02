@@ -1,4 +1,4 @@
-/* Copyright (c) 2002-2014 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2002-2015 Dovecot authors, see the included COPYING file */
 
 #include "lib.h"
 #include "istream.h"
@@ -55,8 +55,12 @@ static void o_stream_close_full(struct ostream *stream, bool close_parents)
 		stream->closed = TRUE;
 	}
 
-	if (stream->stream_errno == 0)
+	if (stream->stream_errno != 0)
+		i_assert(stream->last_failed_errno != 0);
+	else {
 		stream->stream_errno = EPIPE;
+		stream->last_failed_errno = EPIPE;
+	}
 }
 
 void o_stream_destroy(struct ostream **stream)
@@ -83,6 +87,21 @@ void o_stream_unref(struct ostream **_stream)
 
 	io_stream_unref(&stream->real_stream->iostream);
 	*_stream = NULL;
+}
+
+#undef o_stream_add_destroy_callback
+void o_stream_add_destroy_callback(struct ostream *stream,
+				   ostream_callback_t *callback, void *context)
+{
+	io_stream_add_destroy_callback(&stream->real_stream->iostream,
+				       callback, context);
+}
+
+void o_stream_remove_destroy_callback(struct ostream *stream,
+				      void (*callback)())
+{
+	io_stream_remove_destroy_callback(&stream->real_stream->iostream,
+					  callback);
 }
 
 void o_stream_close(struct ostream *stream)
@@ -121,7 +140,7 @@ void o_stream_cork(struct ostream *stream)
 {
 	struct ostream_private *_stream = stream->real_stream;
 
-	if (unlikely(stream->closed))
+	if (unlikely(stream->closed || stream->stream_errno != 0))
 		return;
 
 	_stream->cork(_stream, TRUE);
@@ -131,10 +150,12 @@ void o_stream_uncork(struct ostream *stream)
 {
 	struct ostream_private *_stream = stream->real_stream;
 
-	if (unlikely(stream->closed))
+	if (unlikely(stream->closed || stream->stream_errno != 0))
 		return;
 
 	_stream->cork(_stream, FALSE);
+	if (stream->stream_errno != 0)
+		errno = stream->last_failed_errno = stream->stream_errno;
 }
 
 bool o_stream_is_corked(struct ostream *stream)
@@ -144,23 +165,16 @@ bool o_stream_is_corked(struct ostream *stream)
 	return _stream->corked;
 }
 
-static void o_stream_clear_error(struct ostream *stream)
-{
-	stream->stream_errno = 0;
-	i_free_and_null(stream->real_stream->iostream.error);
-}
-
 int o_stream_flush(struct ostream *stream)
 {
 	struct ostream_private *_stream = stream->real_stream;
 	int ret = 1;
 
-	if (unlikely(stream->closed)) {
+	if (unlikely(stream->closed || stream->stream_errno != 0)) {
 		errno = stream->stream_errno;
 		return -1;
 	}
 
-	o_stream_clear_error(stream);
 	if (unlikely((ret = _stream->flush(_stream)) < 0)) {
 		i_assert(stream->stream_errno != 0);
 		stream->last_failed_errno = stream->stream_errno;
@@ -173,7 +187,7 @@ void o_stream_set_flush_pending(struct ostream *stream, bool set)
 {
 	struct ostream_private *_stream = stream->real_stream;
 
-	if (unlikely(stream->closed))
+	if (unlikely(stream->closed || stream->stream_errno != 0))
 		return;
 
 	_stream->flush_pending(_stream, set);
@@ -198,12 +212,11 @@ int o_stream_seek(struct ostream *stream, uoff_t offset)
 {
 	struct ostream_private *_stream = stream->real_stream;
 
-	if (unlikely(stream->closed)) {
+	if (unlikely(stream->closed || stream->stream_errno != 0)) {
 		errno = stream->stream_errno;
 		return -1;
 	}
 
-	o_stream_clear_error(stream);
 	if (unlikely(_stream->seek(_stream, offset) < 0)) {
 		i_assert(stream->stream_errno != 0);
 		stream->last_failed_errno = stream->stream_errno;
@@ -232,12 +245,11 @@ ssize_t o_stream_sendv(struct ostream *stream, const struct const_iovec *iov,
 	size_t total_size;
 	ssize_t ret;
 
-	if (unlikely(stream->closed)) {
+	if (unlikely(stream->closed || stream->stream_errno != 0)) {
 		errno = stream->stream_errno;
 		return -1;
 	}
 
-	o_stream_clear_error(stream);
 	for (i = 0, total_size = 0; i < iov_count; i++)
 		total_size += iov[i].iov_len;
 	if (total_size == 0)
@@ -275,7 +287,7 @@ void o_stream_nsend(struct ostream *stream, const void *data, size_t size)
 void o_stream_nsendv(struct ostream *stream, const struct const_iovec *iov,
 		     unsigned int iov_count)
 {
-	if (unlikely(stream->closed))
+	if (unlikely(stream->closed || stream->stream_errno != 0))
 		return;
 	(void)o_stream_sendv(stream, iov, iov_count);
 	stream->real_stream->last_errors_not_checked = TRUE;
@@ -288,7 +300,7 @@ void o_stream_nsend_str(struct ostream *stream, const char *str)
 
 void o_stream_nflush(struct ostream *stream)
 {
-	if (unlikely(stream->closed))
+	if (unlikely(stream->closed || stream->stream_errno != 0))
 		return;
 	(void)o_stream_flush(stream);
 	stream->real_stream->last_errors_not_checked = TRUE;
@@ -321,12 +333,12 @@ off_t o_stream_send_istream(struct ostream *outstream,
 	struct ostream_private *_outstream = outstream->real_stream;
 	off_t ret;
 
-	if (unlikely(outstream->closed || instream->closed)) {
+	if (unlikely(outstream->closed || instream->closed ||
+		     outstream->stream_errno != 0)) {
 		errno = outstream->stream_errno;
 		return -1;
 	}
 
-	o_stream_clear_error(outstream);
 	ret = _outstream->send_istream(_outstream, instream);
 	if (unlikely(ret < 0)) {
 		if (outstream->stream_errno != 0) {
@@ -344,12 +356,11 @@ int o_stream_pwrite(struct ostream *stream, const void *data, size_t size,
 {
 	int ret;
 
-	if (unlikely(stream->closed)) {
+	if (unlikely(stream->closed || stream->stream_errno != 0)) {
 		errno = stream->stream_errno;
 		return -1;
 	}
 
-	o_stream_clear_error(stream);
 	ret = stream->real_stream->write_at(stream->real_stream,
 					    data, size, offset);
 	if (unlikely(ret < 0)) {
@@ -513,7 +524,22 @@ o_stream_default_seek(struct ostream_private *_stream,
 		      uoff_t offset ATTR_UNUSED)
 {
 	_stream->ostream.stream_errno = ESPIPE;
+	_stream->ostream.last_failed_errno = ESPIPE;
 	return -1;
+}
+
+static ssize_t
+o_stream_default_sendv(struct ostream_private *stream,
+		       const struct const_iovec *iov, unsigned int iov_count)
+{
+	ssize_t ret;
+
+	if ((ret = o_stream_sendv(stream->parent, iov, iov_count)) < 0) {
+		o_stream_copy_error_from_parent(stream);
+		return -1;
+	}
+	stream->ostream.offset += ret;
+	return ret;
 }
 
 static int
@@ -522,6 +548,7 @@ o_stream_default_write_at(struct ostream_private *_stream,
 			  size_t size ATTR_UNUSED, uoff_t offset ATTR_UNUSED)
 {
 	_stream->ostream.stream_errno = ESPIPE;
+	_stream->ostream.last_failed_errno = ESPIPE;
 	return -1;
 }
 
@@ -576,6 +603,8 @@ o_stream_create(struct ostream_private *_stream, struct ostream *parent, int fd)
 		_stream->get_used_size = o_stream_default_get_used_size;
 	if (_stream->seek == NULL)
 		_stream->seek = o_stream_default_seek;
+	if (_stream->sendv == NULL)
+		_stream->sendv = o_stream_default_sendv;
 	if (_stream->write_at == NULL)
 		_stream->write_at = o_stream_default_write_at;
 	if (_stream->send_istream == NULL)
@@ -614,4 +643,12 @@ o_stream_create_error_str(int stream_errno, const char *fmt, ...)
 	io_stream_set_verror(&output->real_stream->iostream, fmt, args);
 	va_end(args);
 	return output;
+}
+
+struct ostream *o_stream_create_passthrough(struct ostream *output)
+{
+	struct ostream_private *stream;
+
+	stream = i_new(struct ostream_private, 1);
+	return o_stream_create(stream, output, o_stream_get_fd(output));
 }

@@ -1,4 +1,4 @@
-/* Copyright (c) 2002-2014 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2002-2015 Dovecot authors, see the included COPYING file */
 
 #include "lib.h"
 #include "ioloop.h"
@@ -545,6 +545,11 @@ void i_unset_failure_prefix(void)
 	i_free(log_prefix);
 	log_prefix = i_strdup("");
 	log_prefix_sent = FALSE;
+}
+
+const char *i_get_failure_prefix(void)
+{
+	return log_prefix != NULL ? log_prefix : "";
 }
 
 static int internal_send_split(string_t *full_str, unsigned int prefix_len)

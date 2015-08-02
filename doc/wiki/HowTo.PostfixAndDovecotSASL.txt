@@ -70,7 +70,7 @@ encrypted sessions only, along with several other sanity checks:
 'master.cf'
 
 ---%<-------------------------------------------------------------------------
-submission inet n - - - - smtpd
+submission inet n - n - - smtpd
   -o smtpd_tls_security_level=encrypt
   -o smtpd_sasl_auth_enable=yes
   -o smtpd_sasl_type=dovecot
@@ -110,4 +110,4 @@ See also:
 
  * http://www.postfix.org/SASL_README.html#server_dovecot
 
-(This file was created from the wiki on 2014-10-03 04:43)
+(This file was created from the wiki on 2015-05-13 16:45)

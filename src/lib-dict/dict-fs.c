@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2014 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2013-2015 Dovecot authors, see the included COPYING file */
 
 #include "lib.h"
 #include "array.h"
@@ -125,6 +125,7 @@ fs_dict_iterate_init(struct dict *_dict, const char *const *paths,
 
 	/* these flags are not supported for now */
 	i_assert((flags & DICT_ITERATE_FLAG_RECURSE) == 0);
+	i_assert((flags & DICT_ITERATE_FLAG_EXACT_KEY) == 0);
 	i_assert((flags & (DICT_ITERATE_FLAG_SORT_BY_KEY |
 			   DICT_ITERATE_FLAG_SORT_BY_VALUE)) == 0);
 

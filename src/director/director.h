@@ -6,7 +6,7 @@
 
 #define DIRECTOR_VERSION_NAME "director"
 #define DIRECTOR_VERSION_MAJOR 1
-#define DIRECTOR_VERSION_MINOR 4
+#define DIRECTOR_VERSION_MINOR 5
 
 /* weak users supported in protocol */
 #define DIRECTOR_VERSION_WEAK_USERS 1
@@ -16,6 +16,10 @@
 #define DIRECTOR_VERSION_QUIT 3
 /* user-kick supported */
 #define DIRECTOR_VERSION_USER_KICK 4
+/* options supported in handshake */
+#define DIRECTOR_VERSION_OPTIONS 5
+/* user tags supported */
+#define DIRECTOR_VERSION_TAGS 5
 
 /* Minimum time between even attempting to communicate with a director that
    failed due to a protocol error. */
@@ -74,6 +78,9 @@ struct director {
 	time_t ring_last_sync_time;
 
 	time_t ring_first_alone;
+
+	uint64_t num_requests;
+	uint64_t ring_traffic_input, ring_traffic_output;
 
 	/* director ring handshaking is complete.
 	   director can start serving clients. */

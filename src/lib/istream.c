@@ -1,4 +1,4 @@
-/* Copyright (c) 2002-2014 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2002-2015 Dovecot authors, see the included COPYING file */
 
 #include "lib.h"
 #include "ioloop.h"
@@ -58,31 +58,15 @@ void i_stream_unref(struct istream **stream)
 void i_stream_add_destroy_callback(struct istream *stream,
 				   istream_callback_t *callback, void *context)
 {
-	struct iostream_private *iostream = &stream->real_stream->iostream;
-	struct iostream_destroy_callback *dc;
-
-	if (!array_is_created(&iostream->destroy_callbacks))
-		i_array_init(&iostream->destroy_callbacks, 2);
-	dc = array_append_space(&iostream->destroy_callbacks);
-	dc->callback = callback;
-	dc->context = context;
+	io_stream_add_destroy_callback(&stream->real_stream->iostream,
+				       callback, context);
 }
 
 void i_stream_remove_destroy_callback(struct istream *stream,
 				      void (*callback)())
 {
-	struct iostream_private *iostream = &stream->real_stream->iostream;
-	const struct iostream_destroy_callback *dcs;
-	unsigned int i, count;
-
-	dcs = array_get(&iostream->destroy_callbacks, &count);
-	for (i = 0; i < count; i++) {
-		if (dcs[i].callback == (istream_callback_t *)callback) {
-			array_delete(&iostream->destroy_callbacks, i, 1);
-			return;
-		}
-	}
-	i_unreached();
+	io_stream_remove_destroy_callback(&stream->real_stream->iostream,
+					  callback);
 }
 
 int i_stream_get_fd(struct istream *stream)
@@ -153,6 +137,7 @@ ssize_t i_stream_read(struct istream *stream)
 	ssize_t ret;
 
 	if (unlikely(stream->closed || stream->stream_errno != 0)) {
+		stream->eof = TRUE;
 		errno = stream->stream_errno;
 		return -1;
 	}
@@ -188,6 +173,14 @@ ssize_t i_stream_read(struct istream *stream)
 		i_assert(_stream->skip < _stream->pos);
 		i_assert((size_t)ret+old_size == _stream->pos - _stream->skip);
 		break;
+	}
+
+	if (stream->stream_errno != 0) {
+		/* error handling should be easier if we now just
+		   assume the stream is now at EOF. Note that we could get here
+		   even if read() didn't return -1, although that's a little
+		   bit sloppy istream implementation. */
+		stream->eof = TRUE;
 	}
 
 	i_stream_update(_stream);
@@ -250,7 +243,6 @@ void i_stream_skip(struct istream *stream, uoff_t count)
 	if (unlikely(stream->closed))
 		return;
 
-	stream->stream_errno = 0;
 	_stream->seek(_stream, stream->v_offset + count, FALSE);
 }
 
@@ -398,11 +390,8 @@ char *i_stream_next_line(struct istream *stream)
 	struct istream_private *_stream = stream->real_stream;
 	const unsigned char *pos;
 
-	if (_stream->skip >= _stream->pos) {
-		if (!unlikely(stream->closed))
-			stream->stream_errno = 0;
+	if (_stream->skip >= _stream->pos)
 		return NULL;
-	}
 
 	pos = memchr(_stream->buffer + _stream->skip, '\n',
 		     _stream->pos - _stream->skip);
@@ -749,6 +738,10 @@ void i_stream_default_seek_nonseekable(struct istream_private *stream,
 
 		available = stream->pos - stream->skip;
 		if (available == 0) {
+			if (stream->istream.stream_errno != 0) {
+				/* read failed */
+				return;
+			}
 			io_stream_set_error(&stream->iostream,
 				"Can't seek to offset %"PRIuUOFF_T
 				", because we have data only up to offset %"

@@ -1,4 +1,4 @@
-/* Copyright (c) 2003-2014 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2003-2015 Dovecot authors, see the included COPYING file */
 
 #include "lib.h"
 #include "array.h"
@@ -674,7 +674,9 @@ mail_transaction_log_file_create2(struct mail_transaction_log_file *file,
 	const char *path2;
 	buffer_t *writebuf;
 	int fd, ret;
-	bool rename_existing;
+	bool rename_existing, need_lock;
+
+	need_lock = file->log->head != NULL && file->log->head->locked;
 
 	if (fcntl(new_fd, F_SETFL, O_APPEND) < 0) {
 		log_file_set_syscall_error(file, "fcntl(O_APPEND)");
@@ -774,7 +776,7 @@ mail_transaction_log_file_create2(struct mail_transaction_log_file *file,
 	file->fd = new_fd;
 	ret = mail_transaction_log_file_stat(file, FALSE);
 
-	if (file->log->head != NULL && file->log->head->locked) {
+	if (need_lock) {
 		/* we'll need to preserve the lock */
 		if (mail_transaction_log_file_lock(file) < 0)
 			ret = -1;
@@ -816,8 +818,10 @@ mail_transaction_log_file_create2(struct mail_transaction_log_file *file,
 
 	/* success */
 	file->fd = new_fd;
-        mail_transaction_log_file_add_to_list(file);
-	return 0;
+	mail_transaction_log_file_add_to_list(file);
+
+	i_assert(!need_lock || file->locked);
+	return 1;
 }
 
 int mail_transaction_log_file_create(struct mail_transaction_log_file *file,
@@ -827,7 +831,7 @@ int mail_transaction_log_file_create(struct mail_transaction_log_file *file,
 	struct dotlock_settings new_dotlock_set;
 	struct dotlock *dotlock;
 	mode_t old_mask;
-	int fd;
+	int fd, ret;
 
 	i_assert(!MAIL_INDEX_IS_IN_MEMORY(index));
 
@@ -855,12 +859,13 @@ int mail_transaction_log_file_create(struct mail_transaction_log_file *file,
 
         /* either fd gets used or the dotlock gets deleted and returned fd
            is for the existing file */
-        if (mail_transaction_log_file_create2(file, fd, reset, &dotlock) < 0) {
+	ret = mail_transaction_log_file_create2(file, fd, reset, &dotlock);
+	if (ret < 0) {
 		if (dotlock != NULL)
 			file_dotlock_delete(&dotlock);
 		return -1;
 	}
-	return 0;
+	return ret;
 }
 
 int mail_transaction_log_file_open(struct mail_transaction_log_file *file)
@@ -1615,6 +1620,7 @@ mail_transaction_log_file_munmap(struct mail_transaction_log_file *file)
 	if (file->mmap_base == NULL)
 		return;
 
+	i_assert(file->buffer != NULL);
 	if (munmap(file->mmap_base, file->mmap_size) < 0)
 		log_file_set_syscall_error(file, "munmap()");
 	file->mmap_base = NULL;

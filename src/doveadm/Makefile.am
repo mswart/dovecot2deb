@@ -58,7 +58,25 @@ doveadm_server_DEPENDENCIES = \
 	$(LIBDOVECOT_STORAGE_DEPS) \
 	$(LIBDOVECOT_DEPS)
 
-common = \
+doveadm_common_cmds = \
+	doveadm-auth.c \
+	doveadm-dict.c \
+	doveadm-director.c \
+	doveadm-fs.c \
+	doveadm-instance.c \
+	doveadm-kick.c \
+	doveadm-log.c \
+	doveadm-master.c \
+	doveadm-mount.c \
+	doveadm-mutf7.c \
+	doveadm-penalty.c \
+	doveadm-proxy.c \
+	doveadm-replicator.c \
+	doveadm-sis.c \
+	doveadm-stats.c \
+	doveadm-who.c
+
+doveadm_common_mail_cmds = \
 	doveadm-dsync.c \
 	doveadm-mail.c \
 	doveadm-mail-altmove.c \
@@ -75,8 +93,14 @@ common = \
 	doveadm-mail-mailbox-status.c \
 	doveadm-mail-copymove.c \
 	doveadm-mailbox-list-iter.c \
+	doveadm-mail-save.c \
 	doveadm-mail-search.c \
-	doveadm-mail-server.c \
+	doveadm-mail-server.c
+
+common = \
+	$(doveadm_common_cmds) \
+	$(doveadm_common_mail_cmds) \
+	doveadm-cmd.c \
 	doveadm-print.c \
 	doveadm-settings.c \
 	doveadm-util.c \
@@ -85,33 +109,17 @@ common = \
 doveadm_SOURCES = \
 	$(common) \
 	doveadm.c \
-	doveadm-auth.c \
-	doveadm-dict.c \
-	doveadm-director.c \
 	doveadm-dump.c \
 	doveadm-dump-dbox.c \
 	doveadm-dump-index.c \
 	doveadm-dump-log.c \
 	doveadm-dump-mailboxlog.c \
 	doveadm-dump-thread.c \
-	doveadm-fs.c \
-	doveadm-instance.c \
-	doveadm-kick.c \
-	doveadm-log.c \
-	doveadm-master.c \
-	doveadm-mount.c \
-	doveadm-mutf7.c \
-	doveadm-penalty.c \
 	doveadm-print-flow.c \
 	doveadm-print-pager.c \
 	doveadm-print-tab.c \
 	doveadm-print-table.c \
-	doveadm-proxy.c \
 	doveadm-pw.c \
-	doveadm-replicator.c \
-	doveadm-sis.c \
-	doveadm-stats.c \
-	doveadm-who.c \
 	doveadm-zlib.c
 
 doveadm_server_SOURCES = \
@@ -123,6 +131,7 @@ doveadm_server_SOURCES = \
 pkginc_libdir = $(pkgincludedir)
 pkginc_lib_HEADERS = \
 	doveadm.h \
+	doveadm-cmd.h \
 	doveadm-dsync.h \
 	doveadm-dump.h \
 	doveadm-mail.h \
