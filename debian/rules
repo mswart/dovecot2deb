@@ -6,6 +6,7 @@
 #export DH_VERBOSE=1
 
 dpkg_buildflags = DEB_BUILD_MAINT_OPTIONS="hardening=+all" dpkg-buildflags
+drac_buildflags = DEB_BUILD_MAINT_OPTIONS="hardening=+all,-pie" dpkg-buildflags
 
 PIGEONHOLE_DIR=pigeonhole
 
@@ -24,6 +25,7 @@ endif
 
 config-stamp: configure
 	dh_testdir
+	dh_autotools-dev_updateconfig
 	# Dovecot
 	KRB5CONFIG=krb5-config.mit $(shell $(dpkg_buildflags) --export=configure) sh configure \
 	            --with-ldap=plugin \
@@ -47,7 +49,6 @@ config-stamp: configure
 	            --infodir=\$${prefix}/share/info \
 	            --with-moduledir=\$${prefix}/lib/dovecot/modules \
 	            --disable-rpath \
-	            --with-systemdsystemunitdir=auto \
 	            --disable-static
 	$(MAKE) dovecot-config
 	# Pigeonhole
@@ -70,7 +71,8 @@ build-stamp:  config-stamp
 	# Pigeonhole
 	$(MAKE) -C $(PIGEONHOLE_DIR)
 	# DRAC
-	$(MAKE) -C src/plugins/drac $(shell $(dpkg_buildflags) --export=configure)
+	$(MAKE) -C src/plugins/drac $(shell $(drac_buildflags) --export=configure)
+
 	touch build-stamp
 
 clean:
@@ -82,7 +84,9 @@ clean:
 	# Cleanup pigeonhole
 	[ ! -f $(PIGEONHOLE_DIR)/Makefile ] || $(MAKE) -C $(PIGEONHOLE_DIR) distclean
 	# Cleanup DRAC
-	rm -f src/plugins/drac/drac.so
+	rm -f src/plugins/drac/drac_plugin.so
+	# debconf-updatepo
+	dh_autotools-dev_restoreconfig
 	dh_clean
 
 install: build
@@ -93,7 +97,7 @@ install: build
 	$(MAKE) install DESTDIR=$(CURDIR)/debian/dovecot-core
 	$(MAKE) -C $(PIGEONHOLE_DIR) install DESTDIR=$(CURDIR)/debian/dovecot-core
 	rm `find $(CURDIR)/debian -name '*.la'`
-	cp $(CURDIR)/src/plugins/drac/drac.so $(CURDIR)/debian/dovecot-core/usr/lib/dovecot/modules
+	cp $(CURDIR)/src/plugins/drac/drac_plugin.so $(CURDIR)/debian/dovecot-core/usr/lib/dovecot/modules
 	install -o root -g root -m 0644 $(CURDIR)/doc/example-config/*.conf \
 		$(CURDIR)/debian/dovecot-core/usr/share/dovecot/
 	install -o root -g root -m 0644 $(CURDIR)/doc/example-config/*.conf.ext \
@@ -107,10 +111,20 @@ install: build
 	install -o root -g root -m 0644 $(CURDIR)/$(PIGEONHOLE_DIR)/doc/example-config/conf.d/*.conf \
 		$(CURDIR)/debian/dovecot-core/usr/share/dovecot/conf.d/
 	install -D -m 0755 -o root -g root $(CURDIR)/debian/maildirmake.dovecot $(CURDIR)/debian/dovecot-core/usr/bin/maildirmake.dovecot
-	mv $(CURDIR)/debian/dovecot-core/usr/share/doc/dovecot $(CURDIR)/debian/dovecot-core/usr/share/doc/dovecot-core
+	install -o root -g root -m 0644 $(CURDIR)/debian/openssl.cnf \
+		$(CURDIR)/debian/dovecot-core/usr/share/dovecot/dovecot-openssl.cnf
+	install -o root -g root -m 0755 $(CURDIR)/debian/dovecot-core/usr/share/doc/dovecot/mkcert.sh \
+		$(CURDIR)/debian/dovecot-core/usr/share/dovecot/
+	rm $(CURDIR)/debian/dovecot-core/usr/share/doc/dovecot/mkcert.sh
+	rm $(CURDIR)/debian/dovecot-core/usr/share/doc/dovecot/dovecot-openssl.cnf
+	mv $(CURDIR)/debian/dovecot-core/usr/share/doc/dovecot/*.txt $(CURDIR)/debian/dovecot-core/usr/share/doc/dovecot-core
+	mv $(CURDIR)/debian/dovecot-core/usr/share/doc/dovecot/sieve $(CURDIR)/debian/dovecot-core/usr/share/doc/dovecot-core
+	mv $(CURDIR)/debian/dovecot-core/usr/share/doc/dovecot/wiki $(CURDIR)/debian/dovecot-core/usr/share/doc/dovecot-core
 	cp $(PIGEONHOLE_DIR)/ChangeLog $(CURDIR)/debian/dovecot-core/usr/share/doc/dovecot-core/pigeonhole.ChangeLog
 	cp $(PIGEONHOLE_DIR)/README $(CURDIR)/debian/dovecot-core/usr/share/doc/dovecot-core/pigeonhole.README
 	cp $(PIGEONHOLE_DIR)/NEWS $(CURDIR)/debian/dovecot-core/usr/share/doc/dovecot-core/pigeonhole.NEWS
+	rm -rf $(CURDIR)/debian/dovecot-core/usr/share/doc/dovecot
+	rm -rf $(CURDIR)/debian/dovecot-core/usr/share/doc/dovecot-core/example-config
 
 	# imapd
 	mv $(CURDIR)/debian/dovecot-core/usr/lib/dovecot/imap* $(CURDIR)/debian/dovecot-imapd/usr/lib/dovecot
@@ -156,12 +170,16 @@ install: build
 	# sieve
 	mv $(CURDIR)/debian/dovecot-core/usr/bin/sieve* $(CURDIR)/debian/dovecot-sieve/usr/bin
 	mv $(CURDIR)/debian/dovecot-core/usr/lib/dovecot/modules/lib??_sieve* $(CURDIR)/debian/dovecot-sieve/usr/lib/dovecot/modules
+	mv $(CURDIR)/debian/dovecot-core/usr/lib/dovecot/modules/doveadm/lib??_doveadm_sieve* $(CURDIR)/debian/dovecot-sieve/usr/lib/dovecot/modules/doveadm
+	mv $(CURDIR)/debian/dovecot-core/usr/lib/dovecot/sieve $(CURDIR)/debian/dovecot-sieve/usr/lib/dovecot/modules/sieve
 	mv $(CURDIR)/debian/dovecot-core/usr/lib/dovecot/libdovecot-sieve* $(CURDIR)/debian/dovecot-sieve/usr/lib/dovecot
 	mv $(CURDIR)/debian/dovecot-core/usr/share/dovecot/conf.d/*-sieve.conf $(CURDIR)/debian/dovecot-sieve/usr/share/dovecot/conf.d
+	mv $(CURDIR)/debian/dovecot-core/usr/share/dovecot/conf.d/*-sieve-extprograms.conf $(CURDIR)/debian/dovecot-sieve/usr/share/dovecot/conf.d
 	mv $(CURDIR)/debian/dovecot-core/usr/share/man/man1/sieve* $(CURDIR)/debian/dovecot-sieve/usr/share/man/man1
 
 	# solr
 	mv $(CURDIR)/debian/dovecot-core/usr/lib/dovecot/modules/lib??_fts_solr_* $(CURDIR)/debian/dovecot-solr/usr/lib/dovecot/modules
+	mv $(CURDIR)/doc/solr-schema.xml $(CURDIR)/debian/dovecot-solr/usr/share/dovecot
 
 	# lucene
 	mv $(CURDIR)/debian/dovecot-core/usr/lib/dovecot/modules/lib??_fts_lucene_* $(CURDIR)/debian/dovecot-lucene/usr/lib/dovecot/modules
@@ -180,6 +198,7 @@ binary-indep: build install
 	dh_installdocs -i
 	dh_installexamples -i
 	dh_installman -i
+	dh_installdebconf -i
 	dh_link -i
 	dh_strip -i
 	dh_compress -i
@@ -202,6 +221,7 @@ binary-arch: build install
 	dh_installinit -pdovecot-core --init-script=dovecot -u"defaults 20"
 	dh_installman -a
 	dh_installman -p dovecot-core debian/maildirmake.dovecot.1
+	dh_installdebconf -a
 	dh_bugfiles -a
 	dh_lintian -a
 	dh_installchangelogs -a ChangeLog
