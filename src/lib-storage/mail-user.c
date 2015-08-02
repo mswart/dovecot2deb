@@ -1,4 +1,4 @@
-/* Copyright (c) 2008-2014 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2008-2015 Dovecot authors, see the included COPYING file */
 
 #include "lib.h"
 #include "array.h"
@@ -11,9 +11,10 @@
 #include "strescape.h"
 #include "var-expand.h"
 #include "settings-parser.h"
+#include "iostream-ssl.h"
+#include "fs-api.h"
 #include "auth-master.h"
 #include "master-service.h"
-#include "mountpoint-list.h"
 #include "dict.h"
 #include "mail-storage-settings.h"
 #include "mail-storage-private.h"
@@ -34,8 +35,11 @@ static void mail_user_deinit_base(struct mail_user *user)
 		dict_deinit(&user->_attr_dict);
 	}
 	mail_namespaces_deinit(&user->namespaces);
-	if (user->mountpoints != NULL)
-		mountpoint_list_deinit(&user->mountpoints);
+}
+
+static void mail_user_stats_fill_base(struct mail_user *user ATTR_UNUSED,
+				      struct stats *stats ATTR_UNUSED)
+{
 }
 
 struct mail_user *mail_user_alloc(const char *username,
@@ -66,6 +70,7 @@ struct mail_user *mail_user_alloc(const char *username,
 		i_panic("Settings check unexpectedly failed: %s", error);
 
 	user->v.deinit = mail_user_deinit_base;
+	user->v.stats_fill = mail_user_stats_fill_base;
 	p_array_init(&user->module_contexts, user->pool, 5);
 	return user;
 }
@@ -432,38 +437,6 @@ const char *mail_user_get_anvil_userip_ident(struct mail_user *user)
 			   str_tabescape(user->username), NULL);
 }
 
-bool mail_user_is_path_mounted(struct mail_user *user, const char *path,
-			       const char **error_r)
-{
-	struct mountpoint_list_rec *rec;
-	const char *mounts_path;
-
-	*error_r = NULL;
-
-	if (user->mountpoints == NULL) {
-		mounts_path = t_strdup_printf("%s/"MOUNTPOINT_LIST_FNAME,
-					      user->set->base_dir);
-		user->mountpoints = mountpoint_list_init_readonly(mounts_path);
-	} else {
-		(void)mountpoint_list_refresh(user->mountpoints);
-	}
-	rec = mountpoint_list_find(user->mountpoints, path);
-	if (rec == NULL || strcmp(rec->state, MOUNTPOINT_STATE_IGNORE) == 0) {
-		/* we don't have any knowledge of this path's mountpoint.
-		   assume it's fine. */
-		return TRUE;
-	}
-	/* record exists for this mountpoint. see if it's mounted */
-	if (mountpoint_list_update_mounted(user->mountpoints) == 0 &&
-	    !rec->mounted) {
-		*error_r = t_strdup_printf("Mountpoint %s isn't mounted. "
-			"Mount it or remove it with doveadm mount remove",
-			rec->mount_path);
-		return FALSE;
-	}
-	return TRUE;
-}
-
 static void
 mail_user_try_load_class_plugin(struct mail_user *user, const char *name)
 {
@@ -535,4 +508,27 @@ struct mail_user *mail_user_dup(struct mail_user *user)
 	user2->auth_user = p_strdup(user2->pool, user->auth_user);
 	user2->session_id = p_strdup(user2->pool, user->session_id);
 	return user2;
+}
+
+void mail_user_init_fs_settings(struct mail_user *user,
+				struct fs_settings *fs_set,
+				struct ssl_iostream_settings *ssl_set)
+{
+	const struct mail_storage_settings *mail_set =
+		mail_user_set_get_storage_set(user);
+
+	fs_set->username = user->username;
+	fs_set->session_id = user->session_id;
+	fs_set->base_dir = user->set->base_dir;
+	fs_set->temp_dir = user->set->mail_temp_dir;
+	fs_set->debug = user->mail_debug;
+
+	fs_set->ssl_client_set = ssl_set;
+	ssl_set->ca_dir = mail_set->ssl_client_ca_dir;
+	ssl_set->ca_file = mail_set->ssl_client_ca_file;
+}
+
+void mail_user_stats_fill(struct mail_user *user, struct stats *stats)
+{
+	user->v.stats_fill(user, stats);
 }

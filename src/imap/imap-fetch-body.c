@@ -1,4 +1,4 @@
-/* Copyright (c) 2002-2014 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2002-2015 Dovecot authors, see the included COPYING file */
 
 #include "imap-common.h"
 #include "buffer.h"
@@ -346,6 +346,7 @@ bool imap_fetch_body_section_init(struct imap_fetch_init_context *ctx)
 	}
 	ctx->fetch_ctx->fetch_data |=
 		imap_msgpart_get_fetch_data(body->msgpart);
+	imap_msgpart_get_wanted_headers(body->msgpart, &ctx->fetch_ctx->all_headers);
 
 	if (body_parse_partial(body, p, &error) < 0) {
 		ctx->error = p_strdup_printf(ctx->pool,

@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2014 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2009-2015 Dovecot authors, see the included COPYING file */
 
 #include "lib.h"
 #include "array.h"
@@ -119,12 +119,12 @@ void who_parse_args(struct who_context *ctx, char **args)
 	while (args[1] != NULL) {
 		if (net_parse_range(args[1], &net_ip, &net_bits) == 0) {
 			if (ctx->filter.net_bits != 0)
-				usage();
+				help(&doveadm_cmd_who);
 			ctx->filter.net_ip = net_ip;
 			ctx->filter.net_bits = net_bits;
 		} else {
 			if (ctx->filter.username != NULL)
-				usage();
+				help(&doveadm_cmd_who);
 			ctx->filter.username = args[1];
 		}
 		args++;

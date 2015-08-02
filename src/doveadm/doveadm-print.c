@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2014 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2010-2015 Dovecot authors, see the included COPYING file */
 
 #include "lib.h"
 #include "array.h"
@@ -21,6 +21,8 @@ struct doveadm_print_context {
 	unsigned int header_idx;
 	bool print_stream_open;
 };
+
+bool doveadm_print_hide_titles = FALSE;
 
 static struct doveadm_print_context *ctx;
 

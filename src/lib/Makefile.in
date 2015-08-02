@@ -96,26 +96,27 @@ CONFIG_CLEAN_VPATH_FILES =
 LTLIBRARIES = $(noinst_LTLIBRARIES)
 liblib_la_LIBADD =
 am_liblib_la_OBJECTS = abspath.lo array.lo aqueue.lo askpass.lo \
-	backtrace-string.lo base64.lo bits.lo bsearch-insert-pos.lo \
-	buffer.lo child-wait.lo compat.lo connection.lo crc32.lo \
-	data-stack.lo eacces-error.lo env-util.lo execv-const.lo \
-	failures.lo fd-close-on-exec.lo fd-set-nonblock.lo \
-	fdatasync-path.lo fdpass.lo file-cache.lo file-copy.lo \
-	file-dotlock.lo file-lock.lo file-set-size.lo guid.lo hash.lo \
-	hash-format.lo hash-method.lo hash2.lo hex-binary.lo \
-	hex-dec.lo hmac.lo hmac-cram-md5.lo home-expand.lo hostpid.lo \
-	imem.lo ipwd.lo iostream.lo iostream-rawlog.lo \
-	iostream-temp.lo iso8601-date.lo istream.lo \
+	backtrace-string.lo base32.lo base64.lo bits.lo \
+	bsearch-insert-pos.lo buffer.lo child-wait.lo compat.lo \
+	connection.lo crc32.lo data-stack.lo eacces-error.lo \
+	env-util.lo execv-const.lo failures.lo fd-close-on-exec.lo \
+	fd-set-nonblock.lo fdatasync-path.lo fdpass.lo file-cache.lo \
+	file-copy.lo file-dotlock.lo file-lock.lo file-set-size.lo \
+	guid.lo hash.lo hash-format.lo hash-method.lo hash2.lo \
+	hex-binary.lo hex-dec.lo hmac.lo hmac-cram-md5.lo \
+	home-expand.lo hostpid.lo imem.lo ipwd.lo iostream.lo \
+	iostream-rawlog.lo iostream-temp.lo iso8601-date.lo istream.lo \
 	istream-base64-decoder.lo istream-base64-encoder.lo \
 	istream-callback.lo istream-chain.lo istream-concat.lo \
 	istream-crlf.lo istream-data.lo istream-file.lo \
 	istream-hash.lo istream-jsonstr.lo istream-limit.lo \
 	istream-mmap.lo istream-rawlog.lo istream-seekable.lo \
-	istream-sized.lo istream-tee.lo istream-timeout.lo ioloop.lo \
-	ioloop-iolist.lo ioloop-notify-none.lo ioloop-notify-fd.lo \
-	ioloop-notify-dn.lo ioloop-notify-inotify.lo \
-	ioloop-notify-kqueue.lo ioloop-poll.lo ioloop-select.lo \
-	ioloop-epoll.lo ioloop-kqueue.lo json-parser.lo lib.lo \
+	istream-sized.lo istream-tee.lo istream-timeout.lo \
+	istream-unix.lo ioloop.lo ioloop-iolist.lo \
+	ioloop-notify-none.lo ioloop-notify-fd.lo ioloop-notify-dn.lo \
+	ioloop-notify-inotify.lo ioloop-notify-kqueue.lo \
+	ioloop-poll.lo ioloop-select.lo ioloop-epoll.lo \
+	ioloop-kqueue.lo json-parser.lo json-tree.lo lib.lo \
 	lib-signals.lo md4.lo md5.lo mempool.lo mempool-alloconly.lo \
 	mempool-datastack.lo mempool-system.lo \
 	mempool-unsafe-datastack.lo mkdir-parents.lo mmap-anon.lo \
@@ -126,11 +127,11 @@ am_liblib_la_OBJECTS = abspath.lo array.lo aqueue.lo askpass.lo \
 	rand.lo read-full.lo restrict-access.lo \
 	restrict-process-size.lo safe-memset.lo safe-mkdir.lo \
 	safe-mkstemp.lo sendfile-util.lo seq-range-array.lo sha1.lo \
-	sha2.lo str.lo str-find.lo str-sanitize.lo strescape.lo \
-	strfuncs.lo strnum.lo time-util.lo unix-socket-create.lo \
-	unlink-directory.lo unlink-old-files.lo unichar.lo uri-util.lo \
-	utc-offset.lo utc-mktime.lo var-expand.lo wildcard-match.lo \
-	write-full.lo
+	sha2.lo str.lo str-find.lo str-sanitize.lo str-table.lo \
+	strescape.lo strfuncs.lo strnum.lo time-util.lo \
+	unix-socket-create.lo unlink-directory.lo unlink-old-files.lo \
+	unichar.lo uri-util.lo utc-offset.lo utc-mktime.lo \
+	var-expand.lo wildcard-match.lo write-full.lo
 liblib_la_OBJECTS = $(am_liblib_la_OBJECTS)
 AM_V_lt = $(am__v_lt_@AM_V@)
 am__v_lt_ = $(am__v_lt_@AM_DEFAULT_V@)
@@ -140,7 +141,8 @@ am__EXEEXT_1 = test-lib$(EXEEXT)
 PROGRAMS = $(noinst_PROGRAMS)
 am_test_lib_OBJECTS = test_lib-test-lib.$(OBJEXT) \
 	test_lib-test-array.$(OBJEXT) test_lib-test-aqueue.$(OBJEXT) \
-	test_lib-test-base64.$(OBJEXT) test_lib-test-bits.$(OBJEXT) \
+	test_lib-test-base32.$(OBJEXT) test_lib-test-base64.$(OBJEXT) \
+	test_lib-test-bits.$(OBJEXT) \
 	test_lib-test-bsearch-insert-pos.$(OBJEXT) \
 	test_lib-test-buffer.$(OBJEXT) test_lib-test-crc32.$(OBJEXT) \
 	test_lib-test-data-stack.$(OBJEXT) \
@@ -156,11 +158,12 @@ am_test_lib_OBJECTS = test_lib-test-lib.$(OBJEXT) \
 	test_lib-test-istream-crlf.$(OBJEXT) \
 	test_lib-test-istream-seekable.$(OBJEXT) \
 	test_lib-test-istream-tee.$(OBJEXT) \
+	test_lib-test-istream-unix.$(OBJEXT) \
 	test_lib-test-json-parser.$(OBJEXT) \
+	test_lib-test-json-tree.$(OBJEXT) \
 	test_lib-test-llist.$(OBJEXT) \
 	test_lib-test-mempool-alloconly.$(OBJEXT) \
-	test_lib-test-network.$(OBJEXT) \
-	test_lib-test-numpack.$(OBJEXT) \
+	test_lib-test-net.$(OBJEXT) test_lib-test-numpack.$(OBJEXT) \
 	test_lib-test-ostream-file.$(OBJEXT) \
 	test_lib-test-primes.$(OBJEXT) \
 	test_lib-test-printf-format-fix.$(OBJEXT) \
@@ -171,6 +174,7 @@ am_test_lib_OBJECTS = test_lib-test-lib.$(OBJEXT) \
 	test_lib-test-strnum.$(OBJEXT) \
 	test_lib-test-str-find.$(OBJEXT) \
 	test_lib-test-str-sanitize.$(OBJEXT) \
+	test_lib-test-str-table.$(OBJEXT) \
 	test_lib-test-time-util.$(OBJEXT) \
 	test_lib-test-unichar.$(OBJEXT) \
 	test_lib-test-utc-mktime.$(OBJEXT) \
@@ -278,6 +282,8 @@ AUTOCONF = @AUTOCONF@
 AUTOHEADER = @AUTOHEADER@
 AUTOMAKE = @AUTOMAKE@
 AWK = @AWK@
+CASSANDRA_CFLAGS = @CASSANDRA_CFLAGS@
+CASSANDRA_LIBS = @CASSANDRA_LIBS@
 CC = @CC@
 CCDEPMODE = @CCDEPMODE@
 CDB_LIBS = @CDB_LIBS@
@@ -327,7 +333,11 @@ LIBDOVECOT_LOGIN = @LIBDOVECOT_LOGIN@
 LIBDOVECOT_SQL = @LIBDOVECOT_SQL@
 LIBDOVECOT_STORAGE = @LIBDOVECOT_STORAGE@
 LIBDOVECOT_STORAGE_DEPS = @LIBDOVECOT_STORAGE_DEPS@
+LIBEXTTEXTCAT_CFLAGS = @LIBEXTTEXTCAT_CFLAGS@
+LIBEXTTEXTCAT_LIBS = @LIBEXTTEXTCAT_LIBS@
 LIBICONV = @LIBICONV@
+LIBICU_CFLAGS = @LIBICU_CFLAGS@
+LIBICU_LIBS = @LIBICU_LIBS@
 LIBOBJS = @LIBOBJS@
 LIBS = @LIBS@
 LIBTOOL = @LIBTOOL@
@@ -456,6 +466,7 @@ liblib_la_SOURCES = \
 	aqueue.c \
 	askpass.c \
 	backtrace-string.c \
+	base32.c \
 	base64.c \
 	bits.c \
 	bsearch-insert-pos.c \
@@ -513,6 +524,7 @@ liblib_la_SOURCES = \
 	istream-sized.c \
 	istream-tee.c \
 	istream-timeout.c \
+	istream-unix.c \
 	ioloop.c \
 	ioloop-iolist.c \
 	ioloop-notify-none.c \
@@ -525,6 +537,7 @@ liblib_la_SOURCES = \
 	ioloop-epoll.c \
 	ioloop-kqueue.c \
 	json-parser.c \
+	json-tree.c \
 	lib.c \
 	lib-signals.c \
 	md4.c \
@@ -566,6 +579,7 @@ liblib_la_SOURCES = \
 	str.c \
 	str-find.c \
 	str-sanitize.c \
+	str-table.c \
 	strescape.c \
 	strfuncs.c \
 	strnum.c \
@@ -588,6 +602,7 @@ headers = \
 	array-decl.h \
 	askpass.h \
 	backtrace-string.h \
+	base32.h \
 	base64.h \
 	bits.h \
 	bsearch-insert-pos.h \
@@ -636,6 +651,7 @@ headers = \
 	istream-chain.h \
 	istream-concat.h \
 	istream-crlf.h \
+	istream-file-private.h \
 	istream-hash.h \
 	istream-jsonstr.h \
 	istream-private.h \
@@ -644,11 +660,13 @@ headers = \
 	istream-sized.h \
 	istream-tee.h \
 	istream-timeout.h \
+	istream-unix.h \
 	ioloop.h \
 	ioloop-iolist.h \
 	ioloop-private.h \
 	ioloop-notify-fd.h \
 	json-parser.h \
+	json-tree.h \
 	lib.h \
 	lib-signals.h \
 	llist.h \
@@ -687,6 +705,7 @@ headers = \
 	str.h \
 	str-find.h \
 	str-sanitize.h \
+	str-table.h \
 	strescape.h \
 	strfuncs.h \
 	strnum.h \
@@ -714,6 +733,7 @@ test_lib_SOURCES = \
 	test-lib.c \
 	test-array.c \
 	test-aqueue.c \
+	test-base32.c \
 	test-base64.c \
 	test-bits.c \
 	test-bsearch-insert-pos.c \
@@ -733,10 +753,12 @@ test_lib_SOURCES = \
 	test-istream-crlf.c \
 	test-istream-seekable.c \
 	test-istream-tee.c \
+	test-istream-unix.c \
 	test-json-parser.c \
+	test-json-tree.c \
 	test-llist.c \
 	test-mempool-alloconly.c \
-	test-network.c \
+	test-net.c \
 	test-numpack.c \
 	test-ostream-file.c \
 	test-primes.c \
@@ -749,6 +771,7 @@ test_lib_SOURCES = \
 	test-strnum.c \
 	test-str-find.c \
 	test-str-sanitize.c \
+	test-str-table.c \
 	test-time-util.c \
 	test-unichar.c \
 	test-utc-mktime.c \
@@ -837,6 +860,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/array.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/askpass.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/backtrace-string.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/base32.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/base64.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/bits.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/bsearch-insert-pos.Plo@am__quote@
@@ -904,8 +928,10 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/istream-sized.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/istream-tee.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/istream-timeout.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/istream-unix.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/istream.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/json-parser.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/json-tree.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/lib-signals.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/lib.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/md4.Plo@am__quote@
@@ -946,12 +972,14 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/sha2.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/str-find.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/str-sanitize.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/str-table.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/str.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/strescape.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/strfuncs.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/strnum.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test_lib-test-aqueue.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test_lib-test-array.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test_lib-test-base32.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test_lib-test-base64.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test_lib-test-bits.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test_lib-test-bsearch-insert-pos.Po@am__quote@
@@ -970,12 +998,14 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test_lib-test-istream-crlf.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test_lib-test-istream-seekable.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test_lib-test-istream-tee.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test_lib-test-istream-unix.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test_lib-test-istream.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test_lib-test-json-parser.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test_lib-test-json-tree.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test_lib-test-lib.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test_lib-test-llist.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test_lib-test-mempool-alloconly.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test_lib-test-network.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test_lib-test-net.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test_lib-test-numpack.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test_lib-test-ostream-file.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test_lib-test-primes.Po@am__quote@
@@ -984,6 +1014,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test_lib-test-seq-range-array.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test_lib-test-str-find.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test_lib-test-str-sanitize.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test_lib-test-str-table.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test_lib-test-str.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test_lib-test-strescape.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test_lib-test-strfuncs.Po@am__quote@
@@ -1067,6 +1098,20 @@ test_lib-test-aqueue.obj: test-aqueue.c
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='test-aqueue.c' object='test_lib-test-aqueue.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_lib_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test_lib-test-aqueue.obj `if test -f 'test-aqueue.c'; then $(CYGPATH_W) 'test-aqueue.c'; else $(CYGPATH_W) '$(srcdir)/test-aqueue.c'; fi`
+
+test_lib-test-base32.o: test-base32.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_lib_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test_lib-test-base32.o -MD -MP -MF $(DEPDIR)/test_lib-test-base32.Tpo -c -o test_lib-test-base32.o `test -f 'test-base32.c' || echo '$(srcdir)/'`test-base32.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/test_lib-test-base32.Tpo $(DEPDIR)/test_lib-test-base32.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='test-base32.c' object='test_lib-test-base32.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_lib_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test_lib-test-base32.o `test -f 'test-base32.c' || echo '$(srcdir)/'`test-base32.c
+
+test_lib-test-base32.obj: test-base32.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_lib_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test_lib-test-base32.obj -MD -MP -MF $(DEPDIR)/test_lib-test-base32.Tpo -c -o test_lib-test-base32.obj `if test -f 'test-base32.c'; then $(CYGPATH_W) 'test-base32.c'; else $(CYGPATH_W) '$(srcdir)/test-base32.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/test_lib-test-base32.Tpo $(DEPDIR)/test_lib-test-base32.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='test-base32.c' object='test_lib-test-base32.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_lib_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test_lib-test-base32.obj `if test -f 'test-base32.c'; then $(CYGPATH_W) 'test-base32.c'; else $(CYGPATH_W) '$(srcdir)/test-base32.c'; fi`
 
 test_lib-test-base64.o: test-base64.c
 @am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_lib_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test_lib-test-base64.o -MD -MP -MF $(DEPDIR)/test_lib-test-base64.Tpo -c -o test_lib-test-base64.o `test -f 'test-base64.c' || echo '$(srcdir)/'`test-base64.c
@@ -1334,6 +1379,20 @@ test_lib-test-istream-tee.obj: test-istream-tee.c
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_lib_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test_lib-test-istream-tee.obj `if test -f 'test-istream-tee.c'; then $(CYGPATH_W) 'test-istream-tee.c'; else $(CYGPATH_W) '$(srcdir)/test-istream-tee.c'; fi`
 
+test_lib-test-istream-unix.o: test-istream-unix.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_lib_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test_lib-test-istream-unix.o -MD -MP -MF $(DEPDIR)/test_lib-test-istream-unix.Tpo -c -o test_lib-test-istream-unix.o `test -f 'test-istream-unix.c' || echo '$(srcdir)/'`test-istream-unix.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/test_lib-test-istream-unix.Tpo $(DEPDIR)/test_lib-test-istream-unix.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='test-istream-unix.c' object='test_lib-test-istream-unix.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_lib_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test_lib-test-istream-unix.o `test -f 'test-istream-unix.c' || echo '$(srcdir)/'`test-istream-unix.c
+
+test_lib-test-istream-unix.obj: test-istream-unix.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_lib_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test_lib-test-istream-unix.obj -MD -MP -MF $(DEPDIR)/test_lib-test-istream-unix.Tpo -c -o test_lib-test-istream-unix.obj `if test -f 'test-istream-unix.c'; then $(CYGPATH_W) 'test-istream-unix.c'; else $(CYGPATH_W) '$(srcdir)/test-istream-unix.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/test_lib-test-istream-unix.Tpo $(DEPDIR)/test_lib-test-istream-unix.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='test-istream-unix.c' object='test_lib-test-istream-unix.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_lib_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test_lib-test-istream-unix.obj `if test -f 'test-istream-unix.c'; then $(CYGPATH_W) 'test-istream-unix.c'; else $(CYGPATH_W) '$(srcdir)/test-istream-unix.c'; fi`
+
 test_lib-test-json-parser.o: test-json-parser.c
 @am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_lib_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test_lib-test-json-parser.o -MD -MP -MF $(DEPDIR)/test_lib-test-json-parser.Tpo -c -o test_lib-test-json-parser.o `test -f 'test-json-parser.c' || echo '$(srcdir)/'`test-json-parser.c
 @am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/test_lib-test-json-parser.Tpo $(DEPDIR)/test_lib-test-json-parser.Po
@@ -1347,6 +1406,20 @@ test_lib-test-json-parser.obj: test-json-parser.c
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='test-json-parser.c' object='test_lib-test-json-parser.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_lib_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test_lib-test-json-parser.obj `if test -f 'test-json-parser.c'; then $(CYGPATH_W) 'test-json-parser.c'; else $(CYGPATH_W) '$(srcdir)/test-json-parser.c'; fi`
+
+test_lib-test-json-tree.o: test-json-tree.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_lib_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test_lib-test-json-tree.o -MD -MP -MF $(DEPDIR)/test_lib-test-json-tree.Tpo -c -o test_lib-test-json-tree.o `test -f 'test-json-tree.c' || echo '$(srcdir)/'`test-json-tree.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/test_lib-test-json-tree.Tpo $(DEPDIR)/test_lib-test-json-tree.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='test-json-tree.c' object='test_lib-test-json-tree.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_lib_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test_lib-test-json-tree.o `test -f 'test-json-tree.c' || echo '$(srcdir)/'`test-json-tree.c
+
+test_lib-test-json-tree.obj: test-json-tree.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_lib_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test_lib-test-json-tree.obj -MD -MP -MF $(DEPDIR)/test_lib-test-json-tree.Tpo -c -o test_lib-test-json-tree.obj `if test -f 'test-json-tree.c'; then $(CYGPATH_W) 'test-json-tree.c'; else $(CYGPATH_W) '$(srcdir)/test-json-tree.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/test_lib-test-json-tree.Tpo $(DEPDIR)/test_lib-test-json-tree.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='test-json-tree.c' object='test_lib-test-json-tree.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_lib_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test_lib-test-json-tree.obj `if test -f 'test-json-tree.c'; then $(CYGPATH_W) 'test-json-tree.c'; else $(CYGPATH_W) '$(srcdir)/test-json-tree.c'; fi`
 
 test_lib-test-llist.o: test-llist.c
 @am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_lib_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test_lib-test-llist.o -MD -MP -MF $(DEPDIR)/test_lib-test-llist.Tpo -c -o test_lib-test-llist.o `test -f 'test-llist.c' || echo '$(srcdir)/'`test-llist.c
@@ -1376,19 +1449,19 @@ test_lib-test-mempool-alloconly.obj: test-mempool-alloconly.c
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_lib_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test_lib-test-mempool-alloconly.obj `if test -f 'test-mempool-alloconly.c'; then $(CYGPATH_W) 'test-mempool-alloconly.c'; else $(CYGPATH_W) '$(srcdir)/test-mempool-alloconly.c'; fi`
 
-test_lib-test-network.o: test-network.c
-@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_lib_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test_lib-test-network.o -MD -MP -MF $(DEPDIR)/test_lib-test-network.Tpo -c -o test_lib-test-network.o `test -f 'test-network.c' || echo '$(srcdir)/'`test-network.c
-@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/test_lib-test-network.Tpo $(DEPDIR)/test_lib-test-network.Po
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='test-network.c' object='test_lib-test-network.o' libtool=no @AMDEPBACKSLASH@
+test_lib-test-net.o: test-net.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_lib_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test_lib-test-net.o -MD -MP -MF $(DEPDIR)/test_lib-test-net.Tpo -c -o test_lib-test-net.o `test -f 'test-net.c' || echo '$(srcdir)/'`test-net.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/test_lib-test-net.Tpo $(DEPDIR)/test_lib-test-net.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='test-net.c' object='test_lib-test-net.o' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_lib_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test_lib-test-network.o `test -f 'test-network.c' || echo '$(srcdir)/'`test-network.c
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_lib_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test_lib-test-net.o `test -f 'test-net.c' || echo '$(srcdir)/'`test-net.c
 
-test_lib-test-network.obj: test-network.c
-@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_lib_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test_lib-test-network.obj -MD -MP -MF $(DEPDIR)/test_lib-test-network.Tpo -c -o test_lib-test-network.obj `if test -f 'test-network.c'; then $(CYGPATH_W) 'test-network.c'; else $(CYGPATH_W) '$(srcdir)/test-network.c'; fi`
-@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/test_lib-test-network.Tpo $(DEPDIR)/test_lib-test-network.Po
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='test-network.c' object='test_lib-test-network.obj' libtool=no @AMDEPBACKSLASH@
+test_lib-test-net.obj: test-net.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_lib_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test_lib-test-net.obj -MD -MP -MF $(DEPDIR)/test_lib-test-net.Tpo -c -o test_lib-test-net.obj `if test -f 'test-net.c'; then $(CYGPATH_W) 'test-net.c'; else $(CYGPATH_W) '$(srcdir)/test-net.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/test_lib-test-net.Tpo $(DEPDIR)/test_lib-test-net.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='test-net.c' object='test_lib-test-net.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_lib_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test_lib-test-network.obj `if test -f 'test-network.c'; then $(CYGPATH_W) 'test-network.c'; else $(CYGPATH_W) '$(srcdir)/test-network.c'; fi`
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_lib_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test_lib-test-net.obj `if test -f 'test-net.c'; then $(CYGPATH_W) 'test-net.c'; else $(CYGPATH_W) '$(srcdir)/test-net.c'; fi`
 
 test_lib-test-numpack.o: test-numpack.c
 @am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_lib_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test_lib-test-numpack.o -MD -MP -MF $(DEPDIR)/test_lib-test-numpack.Tpo -c -o test_lib-test-numpack.o `test -f 'test-numpack.c' || echo '$(srcdir)/'`test-numpack.c
@@ -1557,6 +1630,20 @@ test_lib-test-str-sanitize.obj: test-str-sanitize.c
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='test-str-sanitize.c' object='test_lib-test-str-sanitize.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_lib_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test_lib-test-str-sanitize.obj `if test -f 'test-str-sanitize.c'; then $(CYGPATH_W) 'test-str-sanitize.c'; else $(CYGPATH_W) '$(srcdir)/test-str-sanitize.c'; fi`
+
+test_lib-test-str-table.o: test-str-table.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_lib_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test_lib-test-str-table.o -MD -MP -MF $(DEPDIR)/test_lib-test-str-table.Tpo -c -o test_lib-test-str-table.o `test -f 'test-str-table.c' || echo '$(srcdir)/'`test-str-table.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/test_lib-test-str-table.Tpo $(DEPDIR)/test_lib-test-str-table.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='test-str-table.c' object='test_lib-test-str-table.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_lib_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test_lib-test-str-table.o `test -f 'test-str-table.c' || echo '$(srcdir)/'`test-str-table.c
+
+test_lib-test-str-table.obj: test-str-table.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_lib_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test_lib-test-str-table.obj -MD -MP -MF $(DEPDIR)/test_lib-test-str-table.Tpo -c -o test_lib-test-str-table.obj `if test -f 'test-str-table.c'; then $(CYGPATH_W) 'test-str-table.c'; else $(CYGPATH_W) '$(srcdir)/test-str-table.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/test_lib-test-str-table.Tpo $(DEPDIR)/test_lib-test-str-table.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='test-str-table.c' object='test_lib-test-str-table.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_lib_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test_lib-test-str-table.obj `if test -f 'test-str-table.c'; then $(CYGPATH_W) 'test-str-table.c'; else $(CYGPATH_W) '$(srcdir)/test-str-table.c'; fi`
 
 test_lib-test-time-util.o: test-time-util.c
 @am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_lib_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test_lib-test-time-util.o -MD -MP -MF $(DEPDIR)/test_lib-test-time-util.Tpo -c -o test_lib-test-time-util.o `test -f 'test-time-util.c' || echo '$(srcdir)/'`test-time-util.c

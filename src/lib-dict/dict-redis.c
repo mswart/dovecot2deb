@@ -1,4 +1,4 @@
-/* Copyright (c) 2008-2014 Dovecot authors, see the included COPYING redis */
+/* Copyright (c) 2008-2015 Dovecot authors, see the included COPYING redis */
 
 #include "lib.h"
 #include "array.h"
@@ -13,6 +13,8 @@
 #define DICT_USERNAME_SEPARATOR '/'
 
 enum redis_input_state {
+	/* expecting +OK reply for SELECT */
+	REDIS_INPUT_STATE_SELECT,
 	/* expecting $-1 / $<size> followed by GET reply */
 	REDIS_INPUT_STATE_GET,
 	/* expecting +QUEUED */
@@ -43,8 +45,8 @@ struct redis_dict_reply {
 
 struct redis_dict {
 	struct dict dict;
-	char *username, *key_prefix;
-	unsigned int timeout_msecs;
+	char *username, *key_prefix, *expire_value;
+	unsigned int timeout_msecs, db_id;
 
 	struct ioloop *ioloop, *prev_ioloop;
 	struct redis_connection conn;
@@ -54,6 +56,7 @@ struct redis_dict {
 
 	bool connected;
 	bool transaction_open;
+	bool db_id_set;
 };
 
 struct redis_dict_transaction_context {
@@ -96,6 +99,7 @@ static void redis_conn_destroy(struct connection *_conn)
 	struct redis_connection *conn = (struct redis_connection *)_conn;
 	const struct redis_dict_reply *reply;
 
+	conn->dict->db_id_set = FALSE;
 	conn->dict->connected = FALSE;
 	connection_disconnect(_conn);
 
@@ -108,18 +112,29 @@ static void redis_conn_destroy(struct connection *_conn)
 		io_loop_stop(conn->dict->ioloop);
 }
 
+static void redis_dict_wait_timeout(struct redis_dict *dict)
+{
+	i_error("redis: Commit timed out in %u.%03u secs",
+		dict->timeout_msecs/1000, dict->timeout_msecs%1000);
+	io_loop_stop(dict->ioloop);
+}
+
 static void redis_wait(struct redis_dict *dict)
 {
+	struct timeout *to;
+
 	i_assert(dict->ioloop == NULL);
 
 	dict->prev_ioloop = current_ioloop;
 	dict->ioloop = io_loop_create();
+	to = timeout_add(dict->timeout_msecs, redis_dict_wait_timeout, dict);
 	connection_switch_ioloop(&dict->conn.conn);
 
 	do {
 		io_loop_run(dict->ioloop);
 	} while (array_count(&dict->input_states) > 0);
 
+	timeout_remove(&to);
 	io_loop_set_current(dict->prev_ioloop);
 	connection_switch_ioloop(&dict->conn.conn);
 	io_loop_set_current(dict->ioloop);
@@ -204,6 +219,7 @@ static int redis_conn_input_more(struct redis_connection *conn)
 	switch (state) {
 	case REDIS_INPUT_STATE_GET:
 		i_unreached();
+	case REDIS_INPUT_STATE_SELECT:
 	case REDIS_INPUT_STATE_MULTI:
 	case REDIS_INPUT_STATE_DISCARD:
 		if (line[0] != '+')
@@ -316,7 +332,7 @@ redis_dict_init(struct dict *driver, const char *uri,
 {
 	struct redis_dict *dict;
 	struct ip_addr ip;
-	unsigned int port = REDIS_DEFAULT_PORT;
+	unsigned int secs, port = REDIS_DEFAULT_PORT;
 	const char *const *args, *unix_path = NULL;
 	int ret = 0;
 
@@ -351,6 +367,22 @@ redis_dict_init(struct dict *driver, const char *uri,
 		} else if (strncmp(*args, "prefix=", 7) == 0) {
 			i_free(dict->key_prefix);
 			dict->key_prefix = i_strdup(*args + 7);
+		} else if (strncmp(*args, "db=", 3) == 0) {
+			if (str_to_uint(*args+3, &dict->db_id) < 0) {
+				*error_r = t_strdup_printf(
+					"Invalid db number: %s", *args+3);
+				ret = -1;
+			}
+		} else if (strncmp(*args, "expire_secs=", 12) == 0) {
+			const char *value = *args + 12;
+
+			if (str_to_uint(value, &secs) < 0 || secs == 0) {
+				*error_r = t_strdup_printf(
+					"Invalid expire_secs: %s", value);
+				ret = -1;
+			}
+			i_free(dict->expire_value);
+			dict->expire_value = i_strdup(value);
 		} else if (strncmp(*args, "timeout_msecs=", 14) == 0) {
 			if (str_to_uint(*args+14, &dict->timeout_msecs) < 0) {
 				*error_r = t_strdup_printf(
@@ -404,6 +436,7 @@ static void redis_dict_deinit(struct dict *_dict)
 	str_free(&dict->conn.last_reply);
 	array_free(&dict->replies);
 	array_free(&dict->input_states);
+	i_free(dict->expire_value);
 	i_free(dict->key_prefix);
 	i_free(dict->username);
 	i_free(dict);
@@ -436,6 +469,24 @@ redis_dict_get_full_key(struct redis_dict *dict, const char *key)
 	return key;
 }
 
+static void redis_dict_select_db(struct redis_dict *dict)
+{
+	const char *cmd, *db_str;
+
+	if (dict->db_id_set)
+		return;
+	dict->db_id_set = TRUE;
+	if (dict->db_id == 0) {
+		/* 0 is the default */
+		return;
+	}
+	db_str = dec2str(dict->db_id);
+	cmd = t_strdup_printf("*2\r\n$6\r\nSELECT\r\n$%d\r\n%s\r\n",
+			      (int)strlen(db_str), db_str);
+	o_stream_nsend_str(dict->conn.conn.output, cmd);
+	redis_input_state_add(dict, REDIS_INPUT_STATE_SELECT);
+}
+
 static int
 redis_dict_lookup_real(struct redis_dict *dict, pool_t pool,
 		       const char *key, const char **value_r)
@@ -466,6 +517,7 @@ redis_dict_lookup_real(struct redis_dict *dict, pool_t pool,
 		}
 
 		if (dict->connected) {
+			redis_dict_select_db(dict);
 			cmd = t_strdup_printf("*2\r\n$3\r\nGET\r\n$%d\r\n%s\r\n",
 					      (int)strlen(key), key);
 			o_stream_nsend_str(dict->conn.conn.output, cmd);
@@ -534,6 +586,8 @@ redis_transaction_init(struct dict *_dict)
 		/* wait for connection */
 		redis_wait(dict);
 	}
+	if (dict->connected)
+		redis_dict_select_db(dict);
 	return &ctx->ctx;
 }
 
@@ -624,25 +678,44 @@ static int redis_check_transaction(struct redis_dict_transaction_context *ctx)
 	return 0;
 }
 
+static void
+redis_append_expire(struct redis_dict_transaction_context *ctx,
+		    string_t *cmd, const char *key)
+{
+	struct redis_dict *dict = (struct redis_dict *)ctx->ctx.dict;
+
+	if (dict->expire_value == NULL)
+		return;
+
+	str_printfa(cmd, "*3\r\n$6\r\nEXPIRE\r\n$%u\r\n%s\r\n$%u\r\n%s\r\n",
+		    (unsigned int)strlen(key), key,
+		    (unsigned int)strlen(dict->expire_value),
+		    dict->expire_value);
+	redis_input_state_add(dict, REDIS_INPUT_STATE_MULTI);
+	ctx->cmd_count++;
+}
+
 static void redis_set(struct dict_transaction_context *_ctx,
 		      const char *key, const char *value)
 {
 	struct redis_dict_transaction_context *ctx =
 		(struct redis_dict_transaction_context *)_ctx;
 	struct redis_dict *dict = (struct redis_dict *)_ctx->dict;
-	const char *cmd;
+	string_t *cmd;
 
 	if (redis_check_transaction(ctx) < 0)
 		return;
 
 	key = redis_dict_get_full_key(dict, key);
-	cmd = t_strdup_printf("*3\r\n$3\r\nSET\r\n$%u\r\n%s\r\n$%u\r\n%s\r\n",
-			      (unsigned int)strlen(key), key,
-			      (unsigned int)strlen(value), value);
-	if (o_stream_send_str(dict->conn.conn.output, cmd) < 0)
-		ctx->failed = TRUE;
+	cmd = t_str_new(128);
+	str_printfa(cmd, "*3\r\n$3\r\nSET\r\n$%u\r\n%s\r\n$%u\r\n%s\r\n",
+		    (unsigned int)strlen(key), key,
+		    (unsigned int)strlen(value), value);
 	redis_input_state_add(dict, REDIS_INPUT_STATE_MULTI);
 	ctx->cmd_count++;
+	redis_append_expire(ctx, cmd, key);
+	if (o_stream_send(dict->conn.conn.output, str_data(cmd), str_len(cmd)) < 0)
+		ctx->failed = TRUE;
 }
 
 static void redis_unset(struct dict_transaction_context *_ctx,
@@ -692,20 +765,23 @@ static void redis_atomic_inc(struct dict_transaction_context *_ctx,
 	struct redis_dict_transaction_context *ctx =
 		(struct redis_dict_transaction_context *)_ctx;
 	struct redis_dict *dict = (struct redis_dict *)_ctx->dict;
-	const char *cmd, *diffstr;
+	const char *diffstr;
+	string_t *cmd;
 
 	if (redis_check_transaction(ctx) < 0)
 		return;
 
 	key = redis_dict_get_full_key(dict, key);
 	diffstr = t_strdup_printf("%lld", diff);
-	cmd = t_strdup_printf("*3\r\n$6\r\nINCRBY\r\n$%u\r\n%s\r\n$%u\r\n%s\r\n",
-			      (unsigned int)strlen(key), key,
-			      (unsigned int)strlen(diffstr), diffstr);
-	if (o_stream_send_str(dict->conn.conn.output, cmd) < 0)
-		ctx->failed = TRUE;
+	cmd = t_str_new(128);
+	str_printfa(cmd, "*3\r\n$6\r\nINCRBY\r\n$%u\r\n%s\r\n$%u\r\n%s\r\n",
+		    (unsigned int)strlen(key), key,
+		    (unsigned int)strlen(diffstr), diffstr);
 	redis_input_state_add(dict, REDIS_INPUT_STATE_MULTI);
 	ctx->cmd_count++;
+	redis_append_expire(ctx, cmd, key);
+	if (o_stream_send(dict->conn.conn.output, str_data(cmd), str_len(cmd)) < 0)
+		ctx->failed = TRUE;
 }
 
 struct dict dict_driver_redis = {
