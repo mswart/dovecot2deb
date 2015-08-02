@@ -81,6 +81,8 @@ struct quota_backend {
 struct quota_root_settings {
 	/* Unique quota root name. */
 	const char *name;
+	/* Name in settings, e.g. "quota", "quota2", .. */
+	const char *set_name;
 
 	struct quota_settings *set;
 	const char *args;
@@ -134,6 +136,8 @@ struct quota_root {
 	unsigned int disable_unlimited_tracking:1;
 	/* Set while quota is being recalculated to avoid recursion. */
 	unsigned int recounting:1;
+	/* Quota root is hidden (to e.g. IMAP GETQUOTAROOT) */
+	unsigned int hidden:1;
 };
 
 struct quota_transaction_context {

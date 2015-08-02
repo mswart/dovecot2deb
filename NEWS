@@ -1,3 +1,131 @@
+v2.2.18 2015-05-15  Timo Sirainen <tss@iki.fi>
+
+	- director: Login UNIX sockets were normally detected as doveadm or
+	  director ring sockets, causing it to break in existing installations.
+	- sdbox: When copying a mail in alt storage, place the destination to
+	  alt storage as well.
+
+v2.2.17 2015-05-13  Timo Sirainen <tss@iki.fi>
+
+	* Dovecot no longer checks or warns if a mountpoint is removed. This
+	  was causing more trouble than it was worth. Make sure that all the
+	  mountpoints that Dovecot accesses aren't writable by mail processes
+	  when they're unmounted.
+	* dict server wasn't properly escaping/unescaping data. Fixing this
+	  broke backwards compatibility with data that contains line feeds.
+	  This hopefully affects only very few installations. If you're using
+	  dict to save multiline data (Sieve scripts to SQL), you may be
+	  affected.
+	* imap: SPECIAL-USE capability is no longer advertised if there are
+	  no special_use flags specified for any mailboxes.
+
+	+ lmtp: Added lmtp_hdr_delivery_address setting to specify whether
+	  to include email address in Delivered-To: and Received: headers.
+	+ Added initial version of full text search library, which includes
+	  language-specific text normalization and filtering. This is still
+	  in development, but it's already possible to use for testing with
+	  fts-lucene and fts-solr.
+	+ lda, lmtp: deliver_log_format can now include %{delivery_time},
+	  which expands to how many milliseconds it took to deliver the mail.
+	  With LMTP %{session_time} also expands to how many milliseconds the
+	  LMTP session took, not including the delivery time.
+	+ lmtp proxy: Mail delivery logging includes timing information.
+	+ imap: Most IMAP commands now include in the tagged reply how many
+	  milliseconds it took to run the command (not counting the time spent
+	  on waiting for the IMAP client to read/write data).
+	+ director: Implemented director_proxy_maybe passdb extra field to
+	  be able to run director and backend in the same Dovecot instance.
+	  (LMTP doesn't support mixed proxy/non-proxy destinations currently.)
+	+ doveadm: Added -F <file> parameter to read a list of users from the
+	  given file and run the command for all the users. This is similar to
+	  -A parameter reading the list of users from userdb lookup.
+	+ Implemented initial Cassandra CQL support as lib-sql backend. It's
+	  only usable as dict backend currently.
+	+ Added quota-clone plugin to copy current quota usage to a dict.
+	- auth: If auth_master_user_separator was set, auth process could be
+	  crashed by trying to log in with empty master username.
+	- imap-login, pop3-login: Fixed crash on handshake failures with new
+	  OpenSSL versions (v1.0.2) when SSLv3 was disabled.
+	- auth: If one passdb fails allow_nets check, it shouldn't have failed
+	  all the other passdb checks later on.
+	- imap: Server METADATA couldn't be accessed
+	- imapc: Fixed \Muted label handling in gmail-migration.
+	- imapc: Various bugfixes and improvements.
+	- Trash plugin fixes by Alexei Gradinari
+	- mbox: Fixed crash/corruption in some situations
+
+v2.2.16 2015-03-12  Timo Sirainen <tss@iki.fi>
+
+	* dbox: Resyncing (e.g. doveadm force-resync) no longer deletes
+	  dovecot.index.cache file. The cache file was rarely the problem
+	  so this just caused unnecessary slowness.
+	* Mailbox name limits changed during mailbox creation: Each part of
+	  a hierarchical name (e.g. "x" or "y" in "x/y") can now be up to 255
+	  chars long (instead of 200). This also reduces the max number of
+	  hierarchical levels to 16 (instead of 20) to keep the maximum name
+	  length 4096 (a common PATH_MAX limit). The 255 char limit is
+	  hopefully large enough for migrations from all existing systems.
+	  It's also the limit on many filesystems.
+
+	+ director: Added director_consistent_hashing setting to enable
+	  consistent hashing (instead of the mostly-random MD5 hashing).
+	  This causes fewer user moves between backends when backend counts
+	  are changed, which may improve performance (mainly due to caching).
+	+ director: Added support for "tags", which allows one director ring
+	  to serve multiple backend clusters with different sets of users.
+	+ LMTP server: Added lmtp_user_concurrency_limit setting to limit how
+	  many LMTP deliveries can be done concurrently for a single user.
+	+ LMTP server: Added support for STARTTLS command.
+	+ If logging data is generated faster than it can be written, log a
+	  warning about it and show information about it in log process's
+	  process title in ps output. Also don't allow a single service to
+	  flood too long at the cost of delaying other services' logging.
+	+ stats: Added support for getting global statistics.
+	+ stats: Use the same session IDs as the rest of Dovecot.
+	+ stats: Plugins can now create their own statistics fields
+	+ doveadm server: Non-mail related commands can now also be used
+	  via doveadm server (TCP socket).
+	+ doveadm proxying: passdb lookup can now override doveadm_port and
+	  change the username.
+	+ doveadm: Search query supports now "oldestonly" parameter to stop
+	  immediately on the first non-match. This can be used to optimize:
+	  doveadm expunge mailbox Trash savedbefore 30d oldestonly
+	+ doveadm: Added "save" command to directly save mails to specified
+	  mailbox (bypassing Sieve).
+	+ doveadm fetch: Added body.snippet field, which returns the first
+	  100 chars of a message without whitespace or HTML tags. The result
+	  is stored into dovecot.index.cache, so it can be fetched efficiently.
+	+ dsync: Added -t <timestamp> parameter to sync only mails newer than
+	  the given received-timestamp.
+	+ dsync: Added -F [-]<flag> parameter to sync only mails with[out] the
+	  given flag/keyword.
+	+ dsync: Added -a <mailbox> parameter to specify the virtual mailbox
+	  containing user's all mails. If this mailbox is already found to
+	  contain the wanted mail (by its GUID), the message is copied from
+	  there instead of being re-saved. (This isn't efficient enough yet
+	  for incremental replication.)
+	+ dsync: -m parameter can now specify \Special-use names for mailboxes.
+	+ imapc: Added imapc_features=gmail-migration to help migrations from
+	  GMail. See http://wiki2.dovecot.org/Migration/Gmail
+	+ imapc: Added imapc_features=search to support IMAP SEARCH command.
+	  (Currently requires ESEARCH support from remote server.)
+	+ expire plugin: Added expire_cache=yes setting to cache most of the
+	  database lookups in dovecot index files.
+	+ quota: If overquota-flag in userdb doesn't match the current quota
+	  usage, execute a configured script.
+	+ redis dict: Added support for expiring keys (:expire_secs=n) and
+	  specifying the database number (:db=n)
+	- auth: Don't crash if master user login is attempted without
+	  any configured master=yes passdbs
+	- Parsing UTF-8 text for mails could have caused broken results
+	  sometimes if buffering was split in the middle of a UTF-8 character.
+	  This affected at least searching messages.
+	- String sanitization for some logged output wasn't done properly:
+	  UTF-8 text could have been truncated wrongly or the truncation may
+	  not have happened at all.
+	- fts-lucene: Lookups from virtual mailbox consisting of over 32
+	  physical mailboxes could have caused crashes.
+
 v2.2.15 2014-10-24  Timo Sirainen <tss@iki.fi>
 
 	* Plugins can now print a banner comment in doveconf output

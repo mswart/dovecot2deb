@@ -1,4 +1,4 @@
-/* Copyright (c) 2004-2014 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2004-2015 Dovecot authors, see the included COPYING file */
 
 #include "lib.h"
 #include "ioloop.h"
@@ -246,7 +246,6 @@ sync_expunge_range(struct mail_index_sync_map_ctx *ctx, const ARRAY_TYPE(seq_ran
 	range = array_get(seqs, &count);
 	if (count == 0)
 		return;
-	i_assert(count > 0);
 
 	map = mail_index_sync_get_atomic_map(ctx);
 
@@ -912,6 +911,7 @@ int mail_index_sync_map(struct mail_index_map **_map,
 	const void *tdata;
 	uint32_t prev_seq;
 	uoff_t start_offset, prev_offset;
+	const char *reason, *error;
 	int ret;
 	bool had_dirty, reset;
 
@@ -953,14 +953,15 @@ int mail_index_sync_map(struct mail_index_map **_map,
 	view = mail_index_view_open_with_map(index, map);
 	ret = mail_transaction_log_view_set(view->log_view,
 					    map->hdr.log_file_seq, start_offset,
-					    (uint32_t)-1, (uoff_t)-1, &reset);
+					    (uint32_t)-1, (uoff_t)-1,
+					    &reset, &reason);
 	if (ret <= 0) {
 		mail_index_view_close(&view);
 		if (force && ret == 0) {
 			/* the seq/offset is probably broken */
 			mail_index_set_error(index, "Index %s: Lost log for "
-				"seq=%u offset=%"PRIuUOFF_T, index->filepath,
-				map->hdr.log_file_seq, start_offset);
+				"seq=%u offset=%"PRIuUOFF_T": %s", index->filepath,
+				map->hdr.log_file_seq, start_offset, reason);
 			(void)mail_index_fsck(index);
 		}
 		/* can't use it. sync by re-reading index. */
@@ -1074,10 +1075,10 @@ int mail_index_sync_map(struct mail_index_map **_map,
 
 	i_assert(index->map == map || type == MAIL_INDEX_SYNC_HANDLER_VIEW);
 
-	if (mail_index_map_check_header(map) <= 0) {
+	if (mail_index_map_check_header(map, &error) <= 0) {
 		mail_index_set_error(index,
-			"Synchronization corrupted index header: %s",
-			index->filepath);
+			"Synchronization corrupted index header %s: %s",
+			index->filepath, error);
 		(void)mail_index_fsck(index);
 		map = index->map;
 	} else if (sync_map_ctx.errors) {

@@ -1,4 +1,4 @@
-/* Copyright (c) 2001-2014 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2001-2015 Dovecot authors, see the included COPYING file */
 
 /* Unit tests for printf-format-fix helper */
 
@@ -52,7 +52,7 @@ static void test_ok_changes()
 
 	errno = EINVAL;
 	needle = strerror(errno);
-	test_assert(needle != NULL);
+	i_assert(needle != NULL);
 	needlen = strlen(needle);
 
 	for (i = 0; i < N_ELEMENTS(tests); ++i) {

@@ -1,4 +1,4 @@
-/* Copyright (c) 2005-2014 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2005-2015 Dovecot authors, see the included COPYING file */
 
 #include "lib.h"
 #include "lib-signals.h"
@@ -262,10 +262,13 @@ int master_getopt(struct master_service *service)
 void master_service_init_log(struct master_service *service,
 			     const char *prefix)
 {
-	const char *path;
+	const char *path, *timestamp;
 
 	if ((service->flags & MASTER_SERVICE_FLAG_STANDALONE) != 0 &&
 	    (service->flags & MASTER_SERVICE_FLAG_DONT_LOG_TO_STDERR) == 0) {
+		timestamp = getenv("LOG_STDERR_TIMESTAMP");
+		if (timestamp != NULL)
+			i_set_failure_timestamp_format(timestamp);
 		i_set_failure_file("/dev/stderr", "");
 		return;
 	}
@@ -536,6 +539,18 @@ unsigned int master_service_get_service_count(struct master_service *service)
 unsigned int master_service_get_socket_count(struct master_service *service)
 {
 	return service->socket_count;
+}
+
+const char *master_service_get_socket_name(struct master_service *service,
+					   int listen_fd)
+{
+	unsigned int i;
+
+	i_assert(listen_fd >= MASTER_LISTEN_FD_FIRST);
+
+	i = listen_fd - MASTER_LISTEN_FD_FIRST;
+	return i < service->listener_names_count ?
+		service->listener_names[i] : "";
 }
 
 void master_service_set_avail_overflow_callback(struct master_service *service,

@@ -22,8 +22,20 @@ enum lmtp_client_result {
 	LMTP_CLIENT_RESULT_INTERNAL_ERROR = -1
 };
 
+struct lmtp_recipient_params {
+	const char *dsn_orcpt;
+};
+
+struct lmtp_client_times {
+	struct timeval connect_started;
+	struct timeval banner_received;
+	struct timeval data_started;
+	struct timeval data_sent;
+};
+
 struct lmtp_client_settings {
 	const char *my_hostname;
+	/* The whole MAIL FROM line, including parameters */
 	const char *mail_from;
 	const char *dns_client_socket_path;
 
@@ -37,6 +49,9 @@ struct lmtp_client_settings {
 	   this many seconds, so it should try to keep lock waits and such
 	   lower than this. */
 	unsigned int proxy_timeout_secs;
+	/* Don't wait an answer from destination server longer than this many
+	   seconds (0 = unlimited) */
+	unsigned int timeout_secs;
 };
 
 /* reply contains the reply coming from remote server, or NULL
@@ -66,6 +81,10 @@ void lmtp_client_set_data_header(struct lmtp_client *client, const char *str);
 void lmtp_client_add_rcpt(struct lmtp_client *client, const char *address,
 			  lmtp_callback_t *rcpt_to_callback,
 			  lmtp_callback_t *data_callback, void *context);
+void lmtp_client_add_rcpt_params(struct lmtp_client *client, const char *address,
+				 const struct lmtp_recipient_params *params,
+				 lmtp_callback_t *rcpt_to_callback,
+				 lmtp_callback_t *data_callback, void *context);
 /* Start sending input stream as DATA. */
 void lmtp_client_send(struct lmtp_client *client, struct istream *data_input);
 /* Call this function whenever input stream can potentially be read forward.
@@ -81,5 +100,8 @@ const char *lmtp_client_state_to_string(struct lmtp_client *client);
 void lmtp_client_set_data_output_callback(struct lmtp_client *client,
 					  void (*callback)(void *),
 					  void *context);
+/* Return LMTP client statistics. */
+const struct lmtp_client_times *
+lmtp_client_get_times(struct lmtp_client *client);
 
 #endif

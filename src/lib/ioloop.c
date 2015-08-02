@@ -1,4 +1,4 @@
-/* Copyright (c) 2002-2014 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2002-2015 Dovecot authors, see the included COPYING file */
 
 #include "lib.h"
 #include "array.h"
@@ -136,16 +136,19 @@ static void io_remove_full(struct io **_io, bool closed)
 		io_loop_notify_remove(io);
 	else {
 		struct io_file *io_file = (struct io_file *)io;
-
-		if (io_file->istream != NULL) {
-			i_stream_unset_io(io_file->istream, io);
-			i_stream_unref(&io_file->istream);
-			io_file->istream = NULL;
-		}
+		struct istream *istream = io_file->istream;
 
 		io_file_unlink(io_file);
 		if (io_file->fd != -1)
 			io_loop_handle_remove(io_file, closed);
+
+		/* remove io from the ioloop before unreferencing the istream,
+		   because a destroyed istream may automatically close the
+		   fd. */
+		if (istream != NULL) {
+			i_stream_unset_io(istream, io);
+			i_stream_unref(&istream);
+		}
 	}
 }
 
@@ -778,25 +781,35 @@ io_loop_context_remove_deleted_callbacks(struct ioloop_context *ctx)
 
 void io_loop_context_activate(struct ioloop_context *ctx)
 {
-	const struct ioloop_context_callback *cb;
+	struct ioloop_context_callback *cb;
 
 	i_assert(ctx->ioloop->cur_ctx == NULL);
 
 	ctx->ioloop->cur_ctx = ctx;
 	io_loop_context_ref(ctx);
-	array_foreach(&ctx->callbacks, cb) {
+	array_foreach_modifiable(&ctx->callbacks, cb) {
+		i_assert(!cb->activated);
 		if (cb->activate != NULL)
 			cb->activate(cb->context);
+		cb->activated = TRUE;
 	}
 }
 
 void io_loop_context_deactivate(struct ioloop_context *ctx)
 {
-	const struct ioloop_context_callback *cb;
+	struct ioloop_context_callback *cb;
 
-	array_foreach(&ctx->callbacks, cb) {
-		if (cb->deactivate != NULL)
-			cb->deactivate(cb->context);
+	i_assert(ctx->ioloop->cur_ctx != NULL);
+
+	array_foreach_modifiable(&ctx->callbacks, cb) {
+		if (!cb->activated) {
+			/* we just added this callback. don't deactivate it
+			   before it gets first activated. */
+		} else {
+			if (cb->deactivate != NULL)
+				cb->deactivate(cb->context);
+			cb->activated = FALSE;
+		}
 	}
 	ctx->ioloop->cur_ctx = NULL;
 	io_loop_context_remove_deleted_callbacks(ctx);

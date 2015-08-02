@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2014 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2010-2015 Dovecot authors, see the included COPYING file */
 
 #include "lib.h"
 #include "buffer.h"
@@ -132,6 +132,9 @@ static void fs_posix_deinit(struct fs *_fs)
 
 static enum fs_properties fs_posix_get_properties(struct fs *fs ATTR_UNUSED)
 {
+	/* FS_PROPERTY_DIRECTORIES not returned because fs_delete()
+	   automatically rmdir()s parents. This could be changed later though,
+	   but SIS code at least would need to be changed to support it. */
 	return FS_PROPERTY_LOCKS | FS_PROPERTY_FASTCOPY | FS_PROPERTY_RENAME |
 		FS_PROPERTY_STAT | FS_PROPERTY_ITER | FS_PROPERTY_RELIABLEITER;
 }
@@ -309,14 +312,24 @@ static void fs_posix_file_deinit(struct fs_file *_file)
 	i_free(file);
 }
 
+static int fs_posix_open_for_read(struct posix_fs_file *file)
+{
+	i_assert(file->file.output == NULL);
+	i_assert(file->temp_path == NULL);
+
+	if (file->fd == -1) {
+		if (fs_posix_open(file) < 0)
+			return -1;
+	}
+	return 0;
+}
+
 static bool fs_posix_prefetch(struct fs_file *_file, uoff_t length ATTR_UNUSED)
 {
 	struct posix_fs_file *file = (struct posix_fs_file *)_file;
 
-	if (file->fd == -1) {
-		if (fs_posix_open(file) < 0)
-			return TRUE;
-	}
+	if (fs_posix_open_for_read(file) < 0)
+		return TRUE;
 
 /* HAVE_POSIX_FADVISE alone isn't enough for CentOS 4.9 */
 #if defined(HAVE_POSIX_FADVISE) && defined(POSIX_FADV_WILLNEED)
@@ -333,10 +346,8 @@ static ssize_t fs_posix_read(struct fs_file *_file, void *buf, size_t size)
 	struct posix_fs_file *file = (struct posix_fs_file *)_file;
 	ssize_t ret;
 
-	if (file->fd == -1) {
-		if (fs_posix_open(file) < 0)
-			return -1;
-	}
+	if (fs_posix_open_for_read(file) < 0)
+		return -1;
 
 	if (file->seek_to_beginning) {
 		file->seek_to_beginning = FALSE;
@@ -360,7 +371,7 @@ fs_posix_read_stream(struct fs_file *_file, size_t max_buffer_size)
 	struct posix_fs_file *file = (struct posix_fs_file *)_file;
 	struct istream *input;
 
-	if (file->fd == -1 && fs_posix_open(file) < 0)
+	if (fs_posix_open_for_read(file) < 0)
 		input = i_stream_create_error_str(errno, "%s", fs_last_error(_file->fs));
 	else {
 		/* the stream could live even after the fs_file */
@@ -382,14 +393,6 @@ static int fs_posix_write_finish(struct posix_fs_file *file)
 		}
 	}
 
-	if (close(file->fd) < 0) {
-		file->fd = -1;
-		fs_set_error(file->file.fs, "close(%s) failed: %m",
-			     file->full_path);
-		return -1;
-	}
-	file->fd = -1;
-
 	switch (file->open_mode) {
 	case FS_OPEN_MODE_CREATE_UNIQUE_128:
 	case FS_OPEN_MODE_CREATE:
@@ -401,8 +404,11 @@ static int fs_posix_write_finish(struct posix_fs_file *file)
 			fs_set_error(file->file.fs, "unlink(%s) failed: %m",
 				     file->temp_path);
 		}
-		if (ret < 0)
+		if (ret < 0) {
+			fs_posix_file_close(&file->file);
+			i_free_and_null(file->temp_path);
 			return -1;
+		}
 		break;
 	case FS_OPEN_MODE_REPLACE:
 		if (rename(file->temp_path, file->full_path) < 0) {
@@ -601,20 +607,35 @@ static int fs_posix_exists(struct fs_file *_file)
 static int fs_posix_stat(struct fs_file *_file, struct stat *st_r)
 {
 	struct posix_fs_file *file = (struct posix_fs_file *)_file;
-	if (stat(file->full_path, st_r) < 0) {
-		fs_set_error(_file->fs, "stat(%s) failed: %m", file->full_path);
-		return -1;
+
+	if (file->fd != -1) {
+		if (fstat(file->fd, st_r) < 0) {
+			fs_set_error(_file->fs, "fstat(%s) failed: %m", file->full_path);
+			return -1;
+		}
+	} else {
+		if (stat(file->full_path, st_r) < 0) {
+			fs_set_error(_file->fs, "stat(%s) failed: %m", file->full_path);
+			return -1;
+		}
 	}
 	return 0;
 }
 
 static int fs_posix_copy(struct fs_file *_src, struct fs_file *_dest)
 {
+	struct posix_fs_file *dest = (struct posix_fs_file *)_dest;
 	struct posix_fs *fs = (struct posix_fs *)_src->fs;
 	unsigned int try_count = 0;
 	int ret;
 
 	ret = link(_src->path, _dest->path);
+	if (errno == EEXIST && dest->open_mode == FS_OPEN_MODE_REPLACE) {
+		/* destination file already exists - replace it */
+		if (unlink(_dest->path) < 0 && errno != ENOENT)
+			i_error("unlink(%s) failed: %m", _dest->path);
+		ret = link(_src->path, _dest->path);
+	}
 	while (ret < 0 && errno == ENOENT &&
 	       try_count <= MAX_MKDIR_RETRY_COUNT) {
 		if (fs_posix_mkdir_parents(fs, _dest->path) < 0)
@@ -686,6 +707,10 @@ fs_posix_iter_init(struct fs *_fs, const char *path, enum fs_iter_flags flags)
 	iter->iter.flags = flags;
 	iter->path = fs->path_prefix == NULL ? i_strdup(path) :
 		i_strconcat(fs->path_prefix, path, NULL);
+	if (iter->path[0] == '\0') {
+		i_free(iter->path);
+		iter->path = i_strdup(".");
+	}
 	iter->dir = opendir(iter->path);
 	if (iter->dir == NULL && errno != ENOENT) {
 		iter->err = errno;

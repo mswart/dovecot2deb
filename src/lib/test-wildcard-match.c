@@ -1,4 +1,4 @@
-/* Copyright (c) 2014 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2014-2015 Dovecot authors, see the included COPYING file */
 
 #include "test-lib.h"
 #include "wildcard-match.h"
@@ -26,6 +26,10 @@ static struct {
 	{ "foo", "????", FALSE },
 	{ "foo", "f*o*o*o", FALSE },
 	{ "foo", "f???*", FALSE },
+
+	{ "*foo", "foo", FALSE },
+	{ "foo*", "foo", FALSE },
+	{ "*foo*", "foo", FALSE },
 
 	{ "", "*", TRUE },
 	{ "", "", TRUE },

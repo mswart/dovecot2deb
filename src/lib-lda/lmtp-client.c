@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2014 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2009-2015 Dovecot authors, see the included COPYING file */
 
 #include "lib.h"
 #include "array.h"
@@ -31,6 +31,8 @@ struct lmtp_rcpt {
 	lmtp_callback_t *data_callback;
 	void *context;
 
+	struct lmtp_recipient_params params;
+
 	unsigned int data_called:1;
 	unsigned int failed:1;
 };
@@ -53,6 +55,7 @@ struct lmtp_client {
 	struct istream *input;
 	struct ostream *output;
 	struct io *io;
+	struct timeout *to;
 	int fd;
 
 	void (*data_output_callback)(void *);
@@ -68,6 +71,7 @@ struct lmtp_client {
 	unsigned int rcpt_next_send_idx;
 	struct istream *data_input;
 	unsigned char output_last;
+	struct lmtp_client_times times;
 
 	unsigned int running:1;
 	unsigned int xclient_sent:1;
@@ -101,6 +105,7 @@ lmtp_client_init(const struct lmtp_client_settings *set,
 	client->set.source_port = set->source_port;
 	client->set.proxy_ttl = set->proxy_ttl;
 	client->set.proxy_timeout_secs = set->proxy_timeout_secs;
+	client->set.timeout_secs = set->timeout_secs;
 	client->finish_callback = finish_callback;
 	client->finish_context = context;
 	client->fd = -1;
@@ -113,6 +118,8 @@ void lmtp_client_close(struct lmtp_client *client)
 {
 	if (client->dns_lookup != NULL)
 		dns_lookup_abort(&client->dns_lookup);
+	if (client->to != NULL)
+		timeout_remove(&client->to);
 	if (client->io != NULL)
 		io_remove(&client->io);
 	if (client->input != NULL)
@@ -386,6 +393,8 @@ static int lmtp_client_send_data(struct lmtp_client *client)
 	}
 	o_stream_nsend(client->output, ".\r\n", 3);
 	client->output_finished = TRUE;
+	io_loop_time_refresh();
+	client->times.data_sent = ioloop_timeval;
 	return 0;
 }
 
@@ -501,6 +510,7 @@ static int lmtp_client_input_line(struct lmtp_client *client, const char *line)
 				"451 4.5.0 Received invalid greeting: %s", line));
 			return -1;
 		}
+		client->times.banner_received = ioloop_timeval;
 		lmtp_client_send_handshake(client);
 		client->input_state = LMTP_INPUT_STATE_LHLO;
 		break;
@@ -555,6 +565,7 @@ static int lmtp_client_input_line(struct lmtp_client *client, const char *line)
 			return -1;
 		}
 		client->input_state++;
+		client->times.data_started = ioloop_timeval;
 		if (client->data_header != NULL)
 			o_stream_nsend_str(client->output, client->data_header);
 		if (lmtp_client_send_data(client) < 0)
@@ -602,6 +613,8 @@ static void lmtp_client_input(struct lmtp_client *client)
 				 " (disconnected in input)");
 	}
 	o_stream_uncork(client->output);
+	if (client->to != NULL)
+		timeout_reset(client->to);
 	lmtp_client_unref(&client);
 }
 
@@ -617,9 +630,19 @@ static void lmtp_client_wait_connect(struct lmtp_client *client)
 				 " (connect)");
 		return;
 	}
+	if (client->to != NULL)
+		timeout_remove(&client->to);
 	io_remove(&client->io);
 	client->io = io_add(client->fd, IO_READ, lmtp_client_input, client);
 	lmtp_client_input(client);
+}
+
+static void lmtp_client_connect_timeout(struct lmtp_client *client)
+{
+	i_error("lmtp client: connect(%s, %u) failed: Timed out in %u secs",
+		client->host, client->port, client->set.timeout_secs);
+	lmtp_client_fail(client, ERRSTR_TEMP_REMOTE_FAILURE
+			 " (connect timeout)");
 }
 
 static int lmtp_client_output(struct lmtp_client *client)
@@ -634,12 +657,18 @@ static int lmtp_client_output(struct lmtp_client *client)
 	else if (client->input_state == LMTP_INPUT_STATE_DATA)
 		(void)lmtp_client_send_data(client);
 	o_stream_uncork(client->output);
+	if (client->to != NULL)
+		timeout_reset(client->to);
 	lmtp_client_unref(&client);
 	return ret;
 }
 
 static int lmtp_client_connect(struct lmtp_client *client)
 {
+	i_assert(client->fd == -1);
+
+	client->times.connect_started = ioloop_timeval;
+
 	client->fd = net_connect_ip(&client->ip, client->port, NULL);
 	if (client->fd == -1) {
 		i_error("lmtp client: connect(%s, %u) failed: %m",
@@ -654,6 +683,10 @@ static int lmtp_client_connect(struct lmtp_client *client)
 	/* we're already sending data in ostream, so can't use IO_WRITE here */
 	client->io = io_add(client->fd, IO_READ,
 			    lmtp_client_wait_connect, client);
+	if (client->set.timeout_secs > 0) {
+		client->to = timeout_add(client->set.timeout_secs*1000,
+					 lmtp_client_connect_timeout, client);
+	}
 	return 0;
 }
 
@@ -732,15 +765,35 @@ void lmtp_client_set_data_header(struct lmtp_client *client, const char *str)
 	client->data_header = p_strdup(client->pool, str);
 }
 
+static void lmtp_append_xtext(string_t *dest, const char *str)
+{
+	unsigned int i;
+
+	for (i = 0; str[i] != '\0'; i++) {
+		if (str[i] >= 33 && str[i] <= 126 &&
+		    str[i] != '+' && str[i] != '=')
+			str_append_c(dest, str[i]);
+		else
+			str_printfa(dest, "+%02X", str[i]);
+	}
+}
+
 static void lmtp_client_send_rcpts(struct lmtp_client *client)
 {
 	const struct lmtp_rcpt *rcpt;
 	unsigned int i, count;
+	string_t *str = t_str_new(128);
 
 	rcpt = array_get(&client->recipients, &count);
 	for (i = client->rcpt_next_send_idx; i < count; i++) {
-		o_stream_nsend_str(client->output,
-			t_strdup_printf("RCPT TO:<%s>\r\n", rcpt[i].address));
+		str_truncate(str, 0);
+		str_printfa(str, "RCPT TO:<%s>", rcpt[i].address);
+		if (rcpt->params.dsn_orcpt != NULL) {
+			str_append(str, " ORCPT=");
+			lmtp_append_xtext(str, rcpt->params.dsn_orcpt);
+		}
+		str_append(str, "\r\n");
+		o_stream_nsend(client->output, str_data(str), str_len(str));
 	}
 	client->rcpt_next_send_idx = i;
 }
@@ -749,11 +802,24 @@ void lmtp_client_add_rcpt(struct lmtp_client *client, const char *address,
 			  lmtp_callback_t *rcpt_to_callback,
 			  lmtp_callback_t *data_callback, void *context)
 {
+	struct lmtp_recipient_params params;
+
+	memset(&params, 0, sizeof(params));
+	lmtp_client_add_rcpt_params(client, address, &params, rcpt_to_callback,
+				    data_callback, context);
+}
+
+void lmtp_client_add_rcpt_params(struct lmtp_client *client, const char *address,
+				 const struct lmtp_recipient_params *params,
+				 lmtp_callback_t *rcpt_to_callback,
+				 lmtp_callback_t *data_callback, void *context)
+{
 	struct lmtp_rcpt *rcpt;
 	enum lmtp_client_result result;
 
 	rcpt = array_append_space(&client->recipients);
 	rcpt->address = p_strdup(client->pool, address);
+	rcpt->params.dsn_orcpt = p_strdup(client->pool, params->dsn_orcpt);
 	rcpt->rcpt_to_callback = rcpt_to_callback;
 	rcpt->data_callback = data_callback;
 	rcpt->context = context;
@@ -773,10 +839,33 @@ void lmtp_client_add_rcpt(struct lmtp_client *client, const char *address,
 		lmtp_client_send_rcpts(client);
 }
 
+static void lmtp_client_timeout(struct lmtp_client *client)
+{
+	const char *line;
+
+	line = t_strdup_printf(ERRSTR_TEMP_REMOTE_FAILURE
+		" (Timed out after %u secs while waiting for reply to %s)",
+		client->set.timeout_secs, lmtp_client_state_to_string(client));
+	lmtp_client_fail(client, line);
+}
+
 void lmtp_client_send(struct lmtp_client *client, struct istream *data_input)
 {
+	i_assert(client->data_input == NULL);
+
 	i_stream_ref(data_input);
 	client->data_input = data_input;
+
+	/* now we actually want to start doing I/O. start the timeout
+	   handling. */
+	if (client->set.timeout_secs > 0) {
+		if (client->to != NULL) {
+			/* still waiting for connect to finish */
+			timeout_remove(&client->to);
+		}
+		client->to = timeout_add(client->set.timeout_secs*1000,
+					 lmtp_client_timeout, client);
+	}
 
 	(void)lmtp_client_send_data_cmd(client);
 }
@@ -796,4 +885,10 @@ void lmtp_client_set_data_output_callback(struct lmtp_client *client,
 {
 	client->data_output_callback = callback;
 	client->data_output_context = context;
+}
+
+const struct lmtp_client_times *
+lmtp_client_get_times(struct lmtp_client *client)
+{
+	return &client->times;
 }

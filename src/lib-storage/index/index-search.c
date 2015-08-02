@@ -1,4 +1,4 @@
-/* Copyright (c) 2002-2014 Dovecot authors, see the included COPYING file */
+/* Copyright (c) 2002-2015 Dovecot authors, see the included COPYING file */
 
 #include "lib.h"
 #include "ioloop.h"
@@ -1550,7 +1550,20 @@ static int search_more_with_mail(struct index_search_context *ctx,
 		mail_search_args_reset(_ctx->args->args, FALSE);
 
 		if (match != 0) {
+			/* either matched or result is still unknown.
+			   anyway we're far enough now that we probably want
+			   to update the access_parts. the only problem here is
+			   if searching would want fewer access_parts than the
+			   fetching part, but that's probably not a big problem
+			   usually. */
+			index_mail_update_access_parts_pre(mail);
 			ret = 1;
+			break;
+		}
+
+		/* non-match */
+		if (_ctx->args->stop_on_nonmatch) {
+			ret = -1;
 			break;
 		}
 
@@ -1644,6 +1657,7 @@ static int search_more_with_prefetching(struct index_search_context *ctx,
 		array_delete(&ctx->mails, 0, 1);
 		array_append(&ctx->mails, mail_r, 1);
 	}
+	index_mail_update_access_parts_post(*mail_r);
 	return 1;
 }
 
@@ -1677,10 +1691,14 @@ static int search_more(struct index_search_context *ctx,
 		if (imail->data.search_results == NULL)
 			break;
 
-		/* searching wasn't finished yet */
+		/* prefetch running - searching wasn't finished yet */
 		if (search_finish_prefetch(ctx, imail))
 			break;
 		/* search finished as non-match */
+		if (ctx->mail_ctx.args->stop_on_nonmatch) {
+			ret = -1;
+			break;
+		}
 	}
 	return ret;
 }
@@ -1724,12 +1742,14 @@ bool index_storage_search_next_nonblock(struct mail_search_context *_ctx,
 	}
 
 	/* everything searched at this point already. just returning
-	   matches from sort list */
+	   matches from sort list. FIXME: we could do prefetching here also. */
 	if (!index_sort_list_next(_ctx->sort_program, &seq))
 		return FALSE;
 
 	mailp = array_idx(&ctx->mails, 0);
 	mail_set_seq(*mailp, seq);
+	index_mail_update_access_parts_pre(*mailp);
+	index_mail_update_access_parts_post(*mailp);
 	*mail_r = *mailp;
 	return TRUE;
 }
