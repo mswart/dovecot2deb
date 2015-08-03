@@ -1,3 +1,30 @@
+dovecot (1:2.2.18-2) trusty; urgency=medium
+
+  [ Jelmer Vernooij ]
+  * [f0fbfbf] Remove gbp- prefix from section names in debian/gbp.conf.
+
+  [ Jaldhar H. Vyas ]
+  * [f67e498] Place dovenull user in its own group. (Closes: #725164)
+  * [ad3b037] Add a patch from Ubuntu to report the distro name in the login banner why not.
+  * [08900c0] Added new package for Lucene full text search support.
+    Thanks to Jelmer Vernooij <jelmer@debian.org> for the patch.
+    (Closes: #685979)
+  * [df5d2fb] Introduce dovecot-abi for plugin rdependencies
+  * [c20eda6] dovecot-dev: removed dependency on dovecot-core
+  * [b5bea39] Don't allow install of dovecot-sieve without a new enough dovecot-core.
+    (Closes: #772885)
+
+  [ Jelmer Vernooij ]
+  * [ae94599] Build-depend on clucene 2.3 or later, which upstream lists as the minimum version. Closes: #754141
+
+  [ Malte Swart ]
+  * [4af3fad] Merge in current package changes from debian unstable
+  * [cebee4e] Remove rfcs from pigeonhole release
+  * [672dbf3] Update metadata to ppa repo
+  * [138359d] fix/improve dovecot-file extraction
+
+ -- Jelmer Vernooij <jelmer@debian.org>  Sun, 02 Aug 2015 23:18:06 +0200
+
 dovecot (1:2.2.18-1trusty1) trusty; urgency=medium
 
   * [af5ab18] Imported Upstream version 2.2.18
@@ -12,6 +39,19 @@ dovecot (1:2.2.15-1trusty1) trusty; urgency=medium
   * [942ae73] Update pigeonhole release to 0.4.6
 
  -- Malte Swart <packages@devtation.de>  Sat, 14 Feb 2015 18:00:10 +0100
+
+dovecot (1:2.2.13-4) UNRELEASED; urgency=medium
+
+  * Add Provides with dovecot ABI version, for plugins to depend on. Closes: #456021
+
+ -- Jelmer Vernooij <jelmer@debian.org>  Sun, 20 Jul 2014 19:31:09 +0200
+
+dovecot (1:2.2.13-3) UNRELEASED; urgency=medium
+
+  * Build-depend on clucene 2.3 or later, which upstream lists as the
+    minimum version. Closes: #754141
+
+ -- Jelmer Vernooij <jelmer@debian.org>  Tue, 08 Jul 2014 01:48:08 +0200
 
 dovecot (1:2.2.13-2trusty1) trusty; urgency=low
 

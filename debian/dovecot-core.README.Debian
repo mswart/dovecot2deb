@@ -1,14 +1,58 @@
 Dovecot debian package
 ======================
 
-Please refer to http://wiki.dovecot.org for the full documentation of this
+Please refer to http://wiki2.dovecot.org for the full documentation of this
 package and its configuration.
 
 Note that the default value for mbox_write_locks differs between Debian and
-upstream Dovecot. Running 'dovecot -n' to get a list of non-default settings
-will reflect this difference, even if not set in the config file.
+upstream Dovecot:
 	Debian:  mbox_write_locks = "fnctl dotlock"
 	Dovecot: mbox_write_locks = "dotlock fnctl"
+
+dovenull group
+--------------
+
+Upstream recommends that for securities sake, the dovenull user should belong
+to its own private group to which no one else belongs.  Prior to 2.2.9-1, the
+dovenull user was in the nogroup group which contains other users.  This has
+been rectified for new installs but upgraders should make the change
+themselves like this:
+
+# addgroup --system --group dovenull
+# usermod -g dovenull dovenull
+
+Setting up SSL certificates
+---------------------------
+
+In order to use TLS or the IMAP over SSL (imaps) and POP3 over SSL (pop3s)
+protocols you need a digital document that verifies the identity of your
+server called an SSL certificate.  The easiest way to get one of these is to
+buy one from one of the many commercial Certification Authorities (CAs.).  But
+you can also be your own CA and create your own SSL certificate.  In fact this
+package used to generate one for you but this turned out to be buggy and so
+now we leave it up to you.
+
+The certificate will have two pieces, a public part and a private part.  The
+first step is to create a secure directory for the private part:
+
+# install -d -o root -g root -m0700 /etc/dovecot/private
+
+... next copy two files mkcert.sh and openssl.cnf from
+/usr/share/dovecot/ to somewhere you can edit them.  Make openssl.cnf writable
+and mkcert.sh executable.  Edit openssl.cnf to give relevant parameters for
+your certificate.  Run mkcert.sh.  It should create a certificate for you and
+install it in the right place.  Then make sure your certificate has the right
+permissions:
+
+# chown root:dovecot /etc/dovecot/dovecot.pem
+# chmod 0644 /etc/dovecot/dovecot.pem
+# chown root:dovecot /etc/dovecot/private/dovecot.pem
+# chmod 0600 /etc/dovecot/private/dovecot.pem
+
+...finally edit /etc/dovecot/conf.d/10-ssl.conf to enable ssl.
+
+You can find out more about this topic on the dovecot wiki at:
+http://wiki2.dovecot.org/SSL
 
 Upgrading from 1.2 (squeeze) to 2.0 (wheezy)
 --------------------------------------------
@@ -85,7 +129,7 @@ Upgrading from 1.2 (squeeze) to 2.0 (wheezy)
     1.  Move /etc/ssl/certs/dovecot.pem to /etc/dovecot
     2.  Create a directory called /etc/dovecot/private owned by root:root
         with 0700 permissions.
-    3.  Move /etc/ssl/certs/private/dovecot.pem to /etc/dovecot/private
+    3.  Move /etc/ssl/private/dovecot.pem to /etc/dovecot/private
     4.  In /etc/dovecot/conf.d/10-ssl.conf make sure you have these lines:
         ssl_cert = </etc/dovecot/dovecot.pem
         ssl_key = </etc/dovecot/private/dovecot.pem
@@ -95,6 +139,9 @@ Upgrading from 1.2 (squeeze) to 2.0 (wheezy)
     certificates but did modify ssl_cert and ssl_key in
     /etc/dovecot/conf.d/10-ssl.conf to point somewhere else, your changes
     could have been overwritten in -6.  This is fixed in this version.
+
+  * This version has TCP Wrappers support.  See 
+    /etc/dovecot/conf.d/10-tcpwrapper.conf to configure it.
 
   * Other important changes from 1.2.x are:
 
@@ -126,7 +173,7 @@ Upgrading from 1.2 (squeeze) to 2.0 (wheezy)
     + ManageSieve protocol was assigned an official port by IANA:
       4190. This is used by Pigeonhole by default now. If you want to
       listen also on the old 2000 port, see the example in
-      /usr/share/doc/dovecot-common/wiki/ManageSieve.Configuration.txt.gz
+      /usr/share/doc/dovecot-core/dovecot/wiki/Pigeonhole.ManageSieve.Configuration.txt.gz
     + deliver binary was renamed to dovecot-lda (but a symlink still
       exists for now)
     + deliver -n parameter was replaced by lda_mailbox_autocreate
@@ -180,9 +227,9 @@ How to regenerate your self-signed SSL certificate
 
 In order to regenerate the self-signed SSL certificate for dovecot, you have to
 remove both the old certificate and the old key, and then reconfigure the
-package dovecot-common.
+package dovecot-core.
 
 For example, in a standard installation:
 
-    # rm /etc/ssl/certs/dovecot.pem /etc/ssl/private/dovecot.pem
-    # dpkg-reconfigure dovecot-common
+    # rm /etc/dovecot/dovecot.pem /etc/dovecot/private/dovecot.pem
+    # dpkg-reconfigure dovecot-core
