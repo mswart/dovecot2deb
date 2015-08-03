@@ -1,8 +1,10 @@
 #!/bin/sh
 set -e
+. /usr/share/debconf/confmodule
 
 if [ "$1" = "configure" ]; then
   CONFFILES="dovecot.conf \
+    dovecot-dict-auth.conf.ext \
     dovecot-dict-sql.conf.ext \
     dovecot-sql.conf.ext \
     conf.d/10-auth.conf \
@@ -19,6 +21,7 @@ if [ "$1" = "configure" ]; then
     conf.d/90-quota.conf \
     conf.d/auth-checkpassword.conf.ext \
     conf.d/auth-deny.conf.ext \
+    conf.d/auth-dict.conf.ext \
     conf.d/auth-master.conf.ext \
     conf.d/auth-passwdfile.conf.ext \
     conf.d/auth-sql.conf.ext \
@@ -27,9 +30,9 @@ if [ "$1" = "configure" ]; then
     conf.d/auth-vpopmail.conf.ext"
 
   OLD_CONFFILES="dovecot-ldap.conf \
+    dovecot-db.conf.ext \
     dovecot-sql.conf \
     protocols.conf \
-    dovecot-db.conf.ext \
     dovecot-ldap.conf.ext \
     conf.d/20-imap.conf \
     conf.d/20-lmtp.conf \
@@ -63,7 +66,7 @@ if [ "$1" = "configure" ]; then
       if ucfq --with-colons "/etc/dovecot/${conffile}" | grep -q ":Yes:No"; then
         rm -f "/etc/dovecot/${conffile}"
       fi
-      ucf --purge /etc/dovecot/$conffile
+      ucf --debconf-ok --purge /etc/dovecot/$conffile
       ucfr --purge dovecot-common /etc/dovecot/$conffile
       for ext in '~' '%' .bak .dpkg-tmp .dpkg-new .dpkg-old .dpkg-dist .ucf-new .ucf-old .ucf-dist;  do
         rm -f /etc/dovecot/$conffile$ext
@@ -95,7 +98,7 @@ if [ "$1" = "configure" ]; then
   fi
 
   if [ -z "`id -u dovenull 2> /dev/null`" ]; then
-    adduser --system --home /nonexistent --no-create-home --gecos "Dovecot login user" \
+    adduser --system --group --home /nonexistent --no-create-home --gecos "Dovecot login user" \
             --disabled-password --quiet dovenull || true
   fi
 
@@ -103,7 +106,16 @@ if [ "$1" = "configure" ]; then
     # Tell ucf that the file in /usr/share/dovecot is the latest
     # maintainer version, and let it handle how to manage the real
     # configuration file in /etc/dovecot.
-    ucf --three-way /usr/share/dovecot/$conffile /etc/dovecot/$conffile
+
+    # special handling for 10-ssl.conf.  If it is the default from <= -6
+    # we want to alter it so ucf in newer packages doesn't overwrite it.
+    if [ "$conffile" = 'conf.d/10-ssl.conf' ] &&
+    [ "`ucfq --with-colons /etc/dovecot/$conffile | cut -d: -f4`" = 'No' ] &&
+    [ "`md5sum /etc/dovecot/$conffile | cut -d\  -f1`" = '6813a2a50ff7e64b2a35af663c88c05f' ]; then
+        echo \# old config >> /etc/dovecot/conf.d/10-ssl.conf
+    fi
+
+    ucf --three-way --debconf-ok /usr/share/dovecot/$conffile /etc/dovecot/$conffile
     ucfr dovecot-core /etc/dovecot/$conffile
     if [ "$conffile" != "dovecot.conf" ] && [ -f "/etc/dovecot/$conffile" ] &&
 		[ `echo $conffile | cut -b -7` != "conf.d/" ]; then
@@ -117,61 +129,18 @@ if [ "$1" = "configure" ]; then
     delgroup imapd || true
   fi
 
-  ## SSL Certs
-  # Certs and key file
-  OLD_SSL_CERT="/etc/ssl/certs/dovecot.pem"
-  OLD_SSL_KEY="/etc/ssl/private/dovecot.pem"
-  SSL_CERT="/etc/dovecot/dovecot.pem"
-  SSL_KEY="/etc/dovecot/private/dovecot.pem"
+  db_stop || true
+fi
 
-  if [ ! -e /etc/dovecot/private ]; then
-    install -d -o root -g root -m0700 /etc/dovecot/private
-  fi
-
-  if [ -e $OLD_SSL_CERT ] || [ -e $OLD_SSL_KEY ]; then
-      echo "You already have ssl certs for dovecot."
-      echo "However you should move them out of /etc/ssl"
-      echo "and into /etc/dovecot and update the configuration"
-      echo "in /etc/dovecot/conf.d/10-ssl.conf accordingly."
-      echo "See /usr/share/doc/dovecot-core/README.Debian.gz for details."
-  # Generate new certs if needed
-  elif [ -e $SSL_CERT ] || [ -e $SSL_KEY ]; then
-      echo "You already have ssl certs for dovecot."
-  else
-      echo "Creating generic self-signed certificate: $SSL_CERT"
-      echo "This certificate will expire in 10 years."
-      echo "(replace with hand-crafted or authorized one if needed)."
-      cd /etc/dovecot
-      PATH=$PATH:/usr/bin/ssl
-      if ! FQDN="$(hostname -f)"; then
-          FQDN="$(hostname)"
-          echo WARNING: Could not get FQDN, using \"$FQDN\".
-      fi
-      MAILNAME="$(cat /etc/mailname 2> /dev/null || echo "$FQDN")"
-      (openssl req -newkey rsa:2048  -x509 -days 3652.5 -nodes \
-	  -rand /dev/urandom -out $SSL_CERT -keyout $SSL_KEY > /dev/null 2>&1 <<+
-.
-.
-.
-Dovecot mail server
-$FQDN
-$FQDN
-root@$MAILNAME
-+
-      ) || echo "Warning : Bad SSL config, can't generate certificate."
-
-    ucfr dovecot-core $SSL_CERT
-    ucfr dovecot-core $SSL_KEY
-
-    if [ ! -h $SSL_CERT ] && [ ! -h $SSL_KEY ]; then
-      chown root:dovecot $SSL_CERT || true
-      chmod 0644 $SSL_CERT || true
-      chown root:dovecot $SSL_KEY || true
-      chmod 0600 $SSL_KEY || true
+if [ "$1" = "triggered" ]; then
+    if [ -x "/etc/init.d/dovecot" ]; then
+        db_stop || true
+        if [ -x /usr/sbin/invoke-rc.d ]; then
+            invoke-rc.d dovecot restart
+        else
+            /etc/init.d/dovecot restart
+        fi
     fi
-
-  fi
-
 fi
 
 #DEBHELPER#
