@@ -183,6 +183,7 @@ install: build
 
 	# lucene
 	mv $(CURDIR)/debian/dovecot-core/usr/lib/dovecot/modules/lib??_fts_lucene_* $(CURDIR)/debian/dovecot-lucene/usr/lib/dovecot/modules
+	mv $(CURDIR)/debian/dovecot-core/usr/lib/dovecot/modules/doveadm/lib??_doveadm_fts_lucene_* $(CURDIR)/debian/dovecot-lucene/usr/lib/dovecot/modules/doveadm
 
 	# dev
 	mv $(CURDIR)/debian/dovecot-core/usr/include/* $(CURDIR)/debian/dovecot-dev/usr/include
