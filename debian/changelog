@@ -1,4 +1,4 @@
-dovecot (1:2.2.18-2) trusty; urgency=medium
+dovecot (1:2.2.18-2) unstable; urgency=medium
 
   [ Jelmer Vernooij ]
   * [f0fbfbf] Remove gbp- prefix from section names in debian/gbp.conf.
@@ -23,7 +23,7 @@ dovecot (1:2.2.18-2) trusty; urgency=medium
   * [672dbf3] Update metadata to ppa repo
   * [138359d] fix/improve dovecot-file extraction
 
- -- Jelmer Vernooij <jelmer@debian.org>  Sun, 02 Aug 2015 23:18:06 +0200
+ -- Malte Swart <packages@devtation.de>  Sun, 02 Aug 2015 23:18:06 +0200
 
 dovecot (1:2.2.18-1) unstable; urgency=medium
 
