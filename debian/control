@@ -23,7 +23,7 @@ Description: Transitional package for dovecot
 Package: dovecot-core
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}, libpam-runtime (>= 0.76-13.1), openssl, adduser, ucf (>= 2.0020)
-Suggests: ntp, dovecot-gssapi, dovecot-sieve, dovecot-pgsql, dovecot-mysql, dovecot-sqlite, dovecot-ldap, dovecot-imapd, dovecot-pop3d, dovecot-lmtpd, dovecot-managesieved, dovecot-solr, dovecot-lucene
+Suggests: ntp, dovecot-gssapi, dovecot-sieve, dovecot-pgsql, dovecot-mysql, dovecot-sqlite, dovecot-ldap, dovecot-imapd, dovecot-pop3d, dovecot-lmtpd, dovecot-managesieved, dovecot-fts, dovecot-solr, dovecot-lucene
 Provides: dovecot-common, dovecot-abi-${dovecot:ABI-Version}
 Replaces: dovecot-common (<< 1:2.0.14-2~), mailavenger (<< 0.8.1-4)
 Breaks: dovecot-common (<< 1:2.0.14-2~), mailavenger (<< 0.8.1-4)
@@ -168,8 +168,8 @@ Description: secure POP3/IMAP server - GSSAPI support
 Package: dovecot-sieve
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}, dovecot-core (= ${binary:Version}), ucf (>= 2.0020)
-Conflicts: dovecot-core (<= 1:2.2.13-6)
-Replaces: dovecot-core (<= 1:2.2.13-6)
+Conflicts: dovecot-core (<= 1:2.2.15-2)
+Replaces: dovecot-core (<= 1:2.2.15-2)
 Description: secure POP3/IMAP server - Sieve filters support
  Dovecot is a mail server whose major goals are security and extreme
  reliability. It tries very hard to handle all error conditions and verify
@@ -179,9 +179,23 @@ Description: secure POP3/IMAP server - Sieve filters support
  .
  This package provides Sieve filters support for Dovecot.
 
-Package: dovecot-solr
+Package: dovecot-fts
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}, dovecot-core (= ${binary:Version})
+Description: secure POP3/IMAP server - abstract & Squat full text support
+ Dovecot is a mail server whose major goals are security and extreme
+ reliability. It tries very hard to handle all error conditions and verify
+ that all data is valid, making it nearly impossible to crash. It supports
+ mbox/Maildir and its own dbox/mdbox formats, and should also be pretty
+ fast, extensible, and portable.
+ .
+ This package provides generic full text search support for Dovecot. In
+ addition it contains the obsolete Squat full text plugin. Solr or Lucene
+ are more sophisticated plugins.
+
+Package: dovecot-solr
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, dovecot-core (= ${binary:Version}), dovecot-fts (= ${binary:Version})
 Description: secure POP3/IMAP server - Solr support
  Dovecot is a mail server whose major goals are security and extreme
  reliability. It tries very hard to handle all error conditions and verify
@@ -193,7 +207,7 @@ Description: secure POP3/IMAP server - Solr support
 
 Package: dovecot-lucene
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}, dovecot-core (= ${binary:Version})
+Depends: ${shlibs:Depends}, ${misc:Depends}, dovecot-core (= ${binary:Version}), dovecot-fts (= ${binary:Version})
 Description: secure POP3/IMAP server - Lucene support
  Dovecot is a mail server whose major goals are security and extreme
  reliability. It tries very hard to handle all error conditions and verify

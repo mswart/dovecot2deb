@@ -1,3 +1,11 @@
+dovecot (1:2.2.18-3) unstable; urgency=medium
+
+  * [bd7d346] lucene: move lucene doeadm module also into lucene package
+  * [020fa07] control: correct conflicts to fix upgrade in ppa
+  * [aee41dc] extract fts plugin into own package
+
+ -- Malte Swart <packages@devtation.de>  Tue, 04 Aug 2015 23:18:39 +0200
+
 dovecot (1:2.2.18-2precise1) precise; urgency=medium
 
   [ Jelmer Vernooij ]
