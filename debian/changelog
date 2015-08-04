@@ -1,4 +1,4 @@
-dovecot (1:2.2.18-3) unstable; urgency=medium
+dovecot (1:2.2.18-3trusty1) trusty; urgency=medium
 
   * [bd7d346] lucene: move lucene doeadm module also into lucene package
   * [020fa07] control: correct conflicts to fix upgrade in ppa
